@@ -28,7 +28,12 @@ const api = {
     ipcRenderer.invoke('target:update-category', category, targetRatio),
   fundUpdateTarget: (code: string, targetAmount: number | null): Promise<void> =>
     ipcRenderer.invoke('fund:update-target', code, targetAmount),
-  statsData: (): Promise<StatsData> => ipcRenderer.invoke('stats:data')
+  statsData: (): Promise<StatsData> => ipcRenderer.invoke('stats:data'),
+  exportExcel: (): Promise<{ path: string } | null> => ipcRenderer.invoke('export:excel'),
+  exportCsv: (): Promise<{ dir: string; files: string[] } | null> => ipcRenderer.invoke('export:csv'),
+  setDbPath: (): Promise<{ path: string; changed: boolean } | null> =>
+    ipcRenderer.invoke('settings:set-db-path'),
+  relaunchApp: (): Promise<void> => ipcRenderer.invoke('app:relaunch')
 }
 
 contextBridge.exposeInMainWorld('api', api)

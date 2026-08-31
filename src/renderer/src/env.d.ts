@@ -32,6 +32,10 @@ declare global {
       targetUpdateCategory: (category: string, targetRatio: number) => Promise<void>
       fundUpdateTarget: (code: string, targetAmount: number | null) => Promise<void>
       statsData: () => Promise<StatsData>
+      exportExcel: () => Promise<{ path: string } | null>
+      exportCsv: () => Promise<{ dir: string; files: string[] } | null>
+      setDbPath: () => Promise<{ path: string; changed: boolean } | null>
+      relaunchApp: () => Promise<void>
     }
   }
 }

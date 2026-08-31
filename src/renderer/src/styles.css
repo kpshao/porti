@@ -278,6 +278,17 @@ body {
   gap: 8px;
 }
 
+.settings-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.mono {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 13px;
+}
+
 .match-ok {
   color: #00b42a;
   font-weight: 600;

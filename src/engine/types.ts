@@ -3,6 +3,13 @@
 export type OperationType = '买入' | '卖出' | '分红现金' | '分红再投入'
 export type NavSource = 'import' | 'auto' | 'manual'
 
+/** 净值来源中文标签（净值管理页与导出共用） */
+export const NAV_SOURCE_LABEL: Record<NavSource, string> = {
+  import: '导入',
+  auto: '自动',
+  manual: '手动'
+}
+
 export interface Fund {
   code: string
   name: string

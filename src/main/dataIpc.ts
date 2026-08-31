@@ -1,6 +1,7 @@
-// 数据 IPC 处理器（主进程侧）：Excel 导入、流水/基金增删改、数据读取
+// 数据 IPC 处理器（主进程侧）：Excel 导入、流水/基金增删改、数据读取、导出备份、数据位置
 
-import { dialog, ipcMain } from 'electron'
+import { existsSync } from 'fs'
+import { app, dialog, ipcMain } from 'electron'
 import {
   computeCategoryComparison,
   computePositions,
@@ -14,7 +15,9 @@ import { parseExcelFile } from '../importer/parse'
 import { importToDb } from '../importer/write'
 import type { CommitPayload, ImportOutcome, TxData } from '../importer/types'
 import { getDb } from './db'
+import { buildExportData, writeExportCsvs, writeExportExcel } from './exportService'
 import { hasAnyData, selectCategoryTargets, selectFunds, selectNavPoints, selectTransactions } from './repo'
+import { saveDbPath } from './settingsStore'
 import { createFund, createTransaction, deleteTransaction, updateTransaction } from './transactionService'
 import { getFetchStatus, runNavFetch, upsertManualNav } from './navService'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from './navTypes'
@@ -128,4 +131,63 @@ export function registerDataIpc(): void {
       positions: computePositions(funds, transactions, navPoints)
     }
   })
+
+  // ---------- 设置页：导出 Excel/CSV 备份 + 数据文件位置 + 重启 ----------
+
+  // 导出 Excel：概览/流水/净值三张表，取消返回 null；写出失败抛出中文错误由界面回显
+  ipcMain.handle('export:excel', async (): Promise<{ path: string } | null> => {
+    const sheets = buildExportData(getDb())
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: '导出 Excel 备份',
+      defaultPath: `porti-导出-${todayString()}.xlsx`,
+      filters: [{ name: 'Excel 工作簿', extensions: ['xlsx'] }]
+    })
+    if (canceled || filePath === undefined) return null
+    writeExportExcel(sheets, filePath)
+    return { path: filePath }
+  })
+
+  // 导出 CSV：选择目录后写出与 Excel 同内容的三个文件（概览/流水/净值）
+  ipcMain.handle('export:csv', async (): Promise<{ dir: string; files: string[] } | null> => {
+    const sheets = buildExportData(getDb())
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: '选择 CSV 导出目录',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (canceled || filePaths.length === 0) return null
+    const files = writeExportCsvs(sheets, filePaths[0])
+    return { dir: filePaths[0], files }
+  })
+
+  // 更改数据文件位置：把当前数据安全复制到新位置（含未落盘内容），重启后生效。
+  // changed 由主进程单一判定（绝对路径比较），界面据此决定提示文案。
+  ipcMain.handle('settings:set-db-path', async (): Promise<{ path: string; changed: boolean } | null> => {
+    const current = getDb().name
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: '选择数据文件新位置（更改后重启生效）',
+      defaultPath: 'porti.db',
+      filters: [{ name: 'SQLite 数据文件', extensions: ['db'] }]
+    })
+    if (canceled || filePath === undefined) return null
+    if (filePath === current) return { path: current, changed: false }
+    if (existsSync(filePath)) {
+      throw new Error('目标位置已存在文件，请选择未占用的位置或删除该文件后重试')
+    }
+    await getDb().backup(filePath)
+    saveDbPath(app.getPath('userData'), filePath)
+    return { path: filePath, changed: true }
+  })
+
+  // 更改数据位置后立即重启（app.relaunch 会沿用相同启动参数）
+  ipcMain.handle('app:relaunch', (): void => {
+    app.relaunch()
+    app.quit()
+  })
+}
+
+/** 本地时区今日 YYYY-MM-DD（导出默认文件名用） */
+function todayString(): string {
+  const d = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }

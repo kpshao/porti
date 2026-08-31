@@ -1,14 +1,9 @@
 import { useEffect, useState } from 'react'
+import { NAV_SOURCE_LABEL } from '../../../engine'
 import type { NavPoint } from '../../../engine'
 import type { FetchStatus, NavData } from '../../../main/navTypes'
 import { formatNav } from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
-
-const SOURCE_LABEL: Record<NavPoint['source'], string> = {
-  import: '导入',
-  auto: '自动',
-  manual: '手动'
-}
 
 const SOURCE_TAG_CLASS: Record<NavPoint['source'], string> = {
   import: 'tag tag-source-import',
@@ -87,7 +82,7 @@ export default function NavHistory(): React.JSX.Element {
     if (existing !== undefined) {
       const fundName = data?.funds.find((f) => f.code === form.fundCode)?.name ?? form.fundCode
       const ok = window.confirm(
-        `基金「${fundName}」${form.date} 已有净值记录（来源：${SOURCE_LABEL[existing.source]}，净值 ${formatNav(existing.nav)}）。确认覆盖为手动记录？`
+        `基金「${fundName}」${form.date} 已有净值记录（来源：${NAV_SOURCE_LABEL[existing.source]}，净值 ${formatNav(existing.nav)}）。确认覆盖为手动记录？`
       )
       if (!ok) return
     }
@@ -233,7 +228,7 @@ export default function NavHistory(): React.JSX.Element {
                     </td>
                     <td>{formatNav(p.nav)}</td>
                     <td>
-                      <span className={SOURCE_TAG_CLASS[p.source]}>{SOURCE_LABEL[p.source]}</span>
+                      <span className={SOURCE_TAG_CLASS[p.source]}>{NAV_SOURCE_LABEL[p.source]}</span>
                     </td>
                   </tr>
                 ))}

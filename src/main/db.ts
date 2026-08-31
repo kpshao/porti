@@ -1,13 +1,19 @@
+import { mkdirSync } from 'fs'
+import { dirname, join } from 'path'
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import { join } from 'path'
 import { SCHEMA } from './schema'
+import { loadSettings } from './settingsStore'
 import { seedDefaultCategoryTargets } from './targetService'
 
 let db: Database.Database
 
 export function initDatabase(): void {
-  const file = join(app.getPath('userData'), 'porti.db')
+  const userData = app.getPath('userData')
+  // 设置页更改的数据文件位置在重启后生效；未设置时用默认位置
+  const override = loadSettings(userData).dbPath
+  const file = override ?? join(userData, 'porti.db')
+  if (override !== null) mkdirSync(dirname(override), { recursive: true })
   db = new Database(file)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
