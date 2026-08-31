@@ -16,6 +16,9 @@ release/
 # 日志
 *.log
 
+# TypeScript 编译缓存
+*.tsbuildinfo
+
 # Excel 锁文件
 ~$*.xlsx
 

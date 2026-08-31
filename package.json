@@ -1,0 +1,37 @@
+{
+  "name": "porti",
+  "version": "0.1.0",
+  "description": "个人基金仓位管理桌面软件",
+  "main": "./out/main/index.js",
+  "private": true,
+  "author": "kp.shao <kp.shao@outlook.com>",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "rebuild": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "electron@44.0.0": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
+  }
+}

@@ -1,0 +1,83 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  color: #1f2329;
+  background: #f5f6f7;
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  width: 180px;
+  flex-shrink: 0;
+  background: #1f2329;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 8px;
+}
+
+.app-title {
+  font-size: 20px;
+  font-weight: 700;
+  padding: 8px 12px 20px;
+}
+
+.nav-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #c9cdd4;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.nav-item.active {
+  background: #3370ff;
+  color: #fff;
+}
+
+.content {
+  flex: 1;
+  overflow: auto;
+  padding: 24px;
+}
+
+.page h1 {
+  font-size: 22px;
+  margin-bottom: 16px;
+}
+
+.placeholder {
+  color: #86909c;
+  font-size: 14px;
+}
+
+.db-info {
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  line-height: 1.9;
+  word-break: break-all;
+}
