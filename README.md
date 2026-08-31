@@ -1,0 +1,78 @@
+# Porti — 个人基金仓位管理
+
+Porti 是一款本地桌面软件（Electron + React + SQLite），用于管理基金持仓：交易流水、净值历史、仓位与收益计算全部由「流水 + 净值」实时推导，替代手工维护的 Excel。数据保存在本地单个 SQLite 文件，无账号、无云端、无上传。
+
+## 功能一览
+
+- **概览**：总资产 / 总盈亏 / 总收益率 / 落袋收益卡片，持仓明细表，5 大类「目标比例 vs 实际投入比例 vs 实际市值占比 vs 偏离」对比
+- **交易流水**：买入 / 卖出 / 分红现金 / 分红再投入四类流水的增删改查，Excel 一键导入入口
+- **净值管理**：每只基金净值历史表（来源标注：导入 / 自动 / 手动），一键联网抓取（启动时自动抓取），手动补录
+- **收益统计**：总资产曲线、累计收益曲线、周收益列表、单基金盈亏排序
+- **设置**：数据文件位置（可更改）、导出 Excel / CSV 备份
+
+## 安装
+
+### macOS
+
+1. 下载 `Porti-<版本>-arm64.dmg`，双击打开，把 Porti 拖入「应用程序」文件夹
+2. **首次打开**：应用未使用 Apple 开发者证书签名（仅 ad-hoc 签名）且未经公证，会触发 Gatekeeper 拦截。在「应用程序」中**右键 Porti → 打开 → 打开**即可（仅首次需要）
+3. 之后正常从启动台 / 程序坞打开
+
+### Windows
+
+1. 下载 `Porti-Setup-<版本>.exe`，双击安装（可选安装目录，需手动确认 SmartScreen 提示）
+2. 开始菜单运行 Porti
+
+> 数据文件位置：macOS `~/Library/Application Support/Porti/porti.db`；Windows `%APPDATA%\Porti\porti.db`（可在设置页查看与更改）。
+
+## 首次使用：导入 Excel
+
+1. 打开 Porti，进入左侧「**交易流水**」页
+2. 点击右上角「**导入 Excel**」，选择你的 `投资跟踪.xlsx`
+3. 软件解析后展示**导入预览清单**：自动修复项（基金代码补前导零、名称按代码重查）、可疑项（可当场修改）逐条列出
+4. 点击「**确认导入**」，完成后展示与 Excel 的**对账结果**（流水笔数、各基金份额/市值/盈亏逐项比对），确认一致后可放心弃用 Excel
+
+> 导入是一次性迁移。重复导入会重复计入（已有数据时导入按钮会提示）。
+
+## 日常使用：净值更新
+
+- **自动**：每次打开软件自动尝试抓取全部持仓基金的最新净值（失败不阻塞启动，净值管理页会有提示）
+- **手动**：进入「**净值管理**」页点「**一键抓取最新净值**」；单只基金可「手动补录」某日净值（同基金同日已有记录时需确认覆盖）
+- 抓取成功后，概览 / 收益统计全部实时重算，无需其他操作
+
+## 备份
+
+任选其一即可，推荐第 1 种：
+
+1. **拷贝数据文件**（最完整）：在「设置」页查看数据文件位置，拷贝该 SQLite 文件（`porti.db`）即完成备份；恢复到新机器时把备份文件放回同目录（同文件名）重启即可。也可在设置页「更改数据文件位置」把数据迁移到任意**新**路径（目标位置不能已有文件，否则会被拒绝）
+2. **导出 Excel / CSV**：设置页「导出备份」一键产出三张表（概览 / 流水 / 净值，中文表头），数字与软件内显示完全一致，可随时回到表格
+
+## 已知限制
+
+- **未签名**：应用未使用开发者证书签名、未公证，首次打开需右键打开（macOS）或确认 SmartScreen（Windows）；签名证书路径已预留（见下）
+- **Windows 版未运行验证**：V1 以 Mac 验收为准，exe 仅保证构建成功，运行验证延后
+- **无自动更新**：新版本需手动下载覆盖安装
+- **单机单用户**：无账号、多设备同步、多账户管理
+- **净值抓取依赖公开行情接口**：接口不可用时用「手动补录」兜底
+- **简单成本法**：卖出按「累计买入 − 累计赎回」计算净投入成本，不做已实现/未实现盈亏分离
+- 应用图标为 Electron 默认图标（V1 未定制）
+
+## 开发
+
+```bash
+npm install        # 安装依赖
+npm run dev        # 开发模式（热更新）
+npm run typecheck  # 类型检查
+npm run test       # 单元测试（vitest，覆盖计算引擎/导入解析/抓取/导出/设置等）
+npm run package    # 打包：Mac dmg + Windows exe（产物在 release/）
+```
+
+打包说明：
+
+- `electron-builder.yml` 为打包配置；V1 不使用开发者证书（Mac 为 ad-hoc 签名保证 Apple Silicon 可运行）
+- **正式签名（预留）**：设置环境变量 `CSC_LINK`（证书 .p12 路径）+ `CSC_KEY_PASSWORD`（证书密码），并删除配置中 `mac.identity` / `mac.hardenedRuntime` 两行即自动签名；再设 `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` 自动公证。Windows 代码签名证书走同一对 CSC 环境变量，并删除 `win.signAndEditExecutable` 行
+- 国内网络构建时可用镜像加速：`ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ npm run package`
+
+## 数据模型与验收
+
+计算口径、SQLite schema、Excel 导入规则与测试决策见 `.scratch/porti-v1/spec.md`；各里程碑的验收记录见 `.scratch/porti-v1/issues/`。

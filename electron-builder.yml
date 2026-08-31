@@ -1,0 +1,46 @@
+# 打包配置（V1）：Mac dmg 与 Windows exe（NSIS），不使用开发者证书。
+#
+# 签名预留（V2 正式发布时启用）：
+#   设置环境变量 CSC_LINK=<Apple 开发者 .p12 证书路径> CSC_KEY_PASSWORD=<证书密码>，
+#   并删除下方 mac.identity / mac.hardenedRuntime 两行，electron-builder 自动用该
+#   证书签名；再设 APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID 即自动
+#   公证（本文件不写 notarize: false，公证是否执行完全由环境变量决定）。
+#   Windows 代码签名证书走同一对 CSC_LINK/CSC_KEY_PASSWORD 环境变量，
+#   删除 win.signAndEditExecutable 行即可。
+appId: com.kpshao.porti
+productName: Porti
+directories:
+  output: release
+files:
+  - out/**
+# better-sqlite3 v13 为 N-API 模块，自带全平台 prebuild（ABI 与 Electron 版本无关），
+# 无需也不应重建：macOS 上交叉构建 Windows 包时 node-gyp 无法从源码跨平台编译。
+npmRebuild: false
+
+mac:
+  category: public.app-category.finance
+  # V1 无 Apple 证书：ad-hoc 签名保证 Apple Silicon 可直接运行；
+  # 未经公证，首次打开需右键 → 打开（Gatekeeper 拦截）。
+  identity: '-'
+  hardenedRuntime: false
+  target:
+    - dmg
+
+win:
+  # macOS 上交叉构建 Windows 包：跳过 exe 图标/版本资源编辑（该步骤需要 wine），
+  # V1 exe 使用 Electron 默认图标与版本信息。
+  signAndEditExecutable: false
+  target:
+    # 架构固定 x64（构建机是 arm64 时默认会产出 arm64 exe，但用户换机场景
+    # 以 x64 Windows 为主；需要 arm64 exe 时改此处）
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
