@@ -3,7 +3,7 @@
 
 import * as XLSX from 'xlsx'
 import type { CategoryTarget, Fund, OperationType, ReconstructedNav, Snapshot, Transaction } from '../engine'
-import { daysBetween, reconstructNavPoints } from '../engine'
+import { daysBetween, normalizeFundCode, OPERATION_TYPES, reconstructNavPoints } from '../engine'
 import type {
   ExcelExpectation,
   FixItem,
@@ -55,23 +55,10 @@ export function cellToDate(raw: unknown): string | null {
   return null
 }
 
-/** 基金代码归一化：6 位补零字符串；无法识别返回 null */
-export function normalizeFundCode(raw: unknown): string | null {
-  if (raw === null || raw === undefined || raw === '') return null
-  let s: string
-  if (typeof raw === 'number') {
-    if (!Number.isFinite(raw)) return null
-    s = String(Math.round(raw))
-  } else {
-    s = String(raw).trim()
-  }
-  return /^\d{1,6}$/.test(s) ? s.padStart(6, '0') : null
-}
-
 /** 操作类型归一化；无法识别返回 null */
 export function normalizeType(raw: unknown): OperationType | null {
   const s = String(raw ?? '').trim()
-  return s === '买入' || s === '卖出' || s === '分红现金' || s === '分红再投入' ? s : null
+  return OPERATION_TYPES.includes(s as OperationType) ? (s as OperationType) : null
 }
 
 function toNumber(raw: unknown): number | null {

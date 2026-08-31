@@ -275,3 +275,122 @@ body {
   color: #f53f3f;
   font-weight: 600;
 }
+
+.page-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.filter-bar select,
+.filter-bar input {
+  border: 1px solid #c9cdd4;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.filter-count {
+  margin-left: auto;
+}
+
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable:hover {
+  color: #3370ff;
+}
+
+.tag {
+  display: inline-block;
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.tag-buy {
+  background: #e8f3ff;
+  color: #3370ff;
+}
+
+.tag-sell {
+  background: #e8ffea;
+  color: #00b42a;
+}
+
+.tag-cash {
+  background: #fff3e8;
+  color: #f77234;
+}
+
+.tag-reinvest {
+  background: #f5e8ff;
+  color: #722ed1;
+}
+
+.btn-danger {
+  color: #f53f3f;
+  border-color: #f53f3f;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #ffece8;
+}
+
+.form-card {
+  border-left: 3px solid #3370ff;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-field span {
+  color: #86909c;
+  font-size: 12px;
+}
+
+.form-field input,
+.form-field select {
+  border: 1px solid #c9cdd4;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.form-field input:disabled {
+  background: #f2f3f5;
+  color: #86909c;
+}
+
+.fund-form {
+  border: 1px dashed #c9cdd4;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.form-error {
+  color: #f53f3f;
+  font-size: 13px;
+  margin-bottom: 8px;
+}

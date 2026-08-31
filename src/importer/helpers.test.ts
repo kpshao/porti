@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as XLSX from 'xlsx'
-import { cellToDate, excelSerialToDate, normalizeFundCode, normalizeType, parseWorkbook } from './parse'
+import { normalizeFundCode } from '../engine'
+import { cellToDate, excelSerialToDate, normalizeType, parseWorkbook } from './parse'
 
 describe('excelSerialToDate — 序列号 → YYYY-MM-DD（对照 Excel 显示值）', () => {
   it.each([

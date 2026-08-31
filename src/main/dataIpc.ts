@@ -1,15 +1,17 @@
-// Excel 导入与数据摘要的 IPC 处理器（主进程侧）
+// 数据 IPC 处理器（主进程侧）：Excel 导入、流水/基金增删改、数据读取
 
 import { dialog, ipcMain } from 'electron'
 import { computePositions, computeTimeSeries, computeTotals } from '../engine'
+import type { FundInput, TransactionInput } from '../engine'
 import { reconcileAgainstExcel } from '../importer/reconcile'
 import { parseExcelFile } from '../importer/parse'
 import { importToDb } from '../importer/write'
-import type { CommitPayload, DataSummary, ImportOutcome } from '../importer/types'
+import type { CommitPayload, ImportOutcome, TxData } from '../importer/types'
 import { getDb } from './db'
 import { hasAnyData, selectFunds, selectNavPoints, selectTransactions } from './repo'
+import { createFund, createTransaction, deleteTransaction, updateTransaction } from './transactionService'
 
-export function registerImportIpc(): void {
+export function registerDataIpc(): void {
   // 选择 Excel 文件；取消返回 null
   ipcMain.handle('import:pick-file', async (): Promise<string | null> => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -37,14 +39,29 @@ export function registerImportIpc(): void {
     return { counts, report }
   })
 
-  // 当前库内数据摘要（交易流水页初始状态与导入后刷新用）
-  ipcMain.handle('data:summary', (): DataSummary => {
+  // ---------- 交易流水页：列表数据 + 流水/基金增删改 ----------
+
+  ipcMain.handle('tx:data', (): TxData => {
     const db = getDb()
-    if (!hasAnyData(db)) return { hasData: false, totals: null, positions: [] }
+    if (!hasAnyData(db)) return { funds: [], transactions: [], totals: null, positions: [] }
     const funds = selectFunds(db)
     const transactions = selectTransactions(db)
     const navPoints = selectNavPoints(db)
     const positions = computePositions(funds, transactions, navPoints)
-    return { hasData: true, totals: computeTotals(positions, transactions), positions }
+    return { funds, transactions, totals: computeTotals(positions, transactions), positions }
   })
+
+  ipcMain.handle('tx:create', (_event, input: TransactionInput): void => {
+    createTransaction(getDb(), input)
+  })
+
+  ipcMain.handle('tx:update', (_event, id: number, input: TransactionInput): void => {
+    updateTransaction(getDb(), id, input)
+  })
+
+  ipcMain.handle('tx:delete', (_event, id: number): void => {
+    deleteTransaction(getDb(), id)
+  })
+
+  ipcMain.handle('fund:create', (_event, input: FundInput) => createFund(getDb(), input))
 }

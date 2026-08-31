@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
-import type { DataSummary, ImportOutcome, ParseResult, SuspiciousField } from '../../../importer/types'
-import type { Transaction } from '../../../engine'
+import type { CommitPayload, ImportOutcome, ParseResult, SuspiciousField, TxData } from '../../../importer/types'
+import type { Transaction, TransactionRow } from '../../../engine'
+import type { TransactionInput } from '../../../engine'
+import TransactionForm from '../components/TransactionForm'
+import TransactionTable from '../components/TransactionTable'
+import type { TxFilter, TxSort } from '../components/TransactionTable'
 import { formatMoney, formatNav, formatPercent, formatShares } from '../utils/format'
 
 /** 可疑行编辑值：键为 Excel 行号，值为用户修改后的字段 */
 type Edits = Record<string, Partial<Transaction>>
+
+type FormState = { mode: 'create' } | { mode: 'edit'; tx: TransactionRow } | null
 
 const FIX_KIND_LABEL: Record<string, string> = {
   'code-zero-pad': '基金代码补前导零至 6 位',
@@ -15,11 +21,6 @@ const FIX_KIND_LABEL: Record<string, string> = {
   'row-skipped': '跳过行'
 }
 
-/** 对账表值格式：总收益率为百分比，其余为金额 */
-function formatCheckValue(label: string, v: number): string {
-  return label === '总收益率' ? formatPercent(v) : formatMoney(v)
-}
-
 const SUSPICIOUS_FIELD_LABEL: Record<SuspiciousField['field'], string> = {
   nav: '净值',
   shares: '份额',
@@ -27,6 +28,11 @@ const SUSPICIOUS_FIELD_LABEL: Record<SuspiciousField['field'], string> = {
   date: '日期',
   fee: '手续费',
   note: '备注'
+}
+
+/** 对账表值格式：总收益率为百分比，其余为金额 */
+function formatCheckValue(label: string, v: number): string {
+  return label === '总收益率' ? formatPercent(v) : formatMoney(v)
 }
 
 /** 编辑值 → 数字；无效（空/非数字）返回 null */
@@ -42,19 +48,25 @@ function ipcErrorMessage(e: unknown): string {
 }
 
 export default function Transactions(): React.JSX.Element {
-  const [data, setData] = useState<DataSummary | null>(null)
+  const [txData, setTxData] = useState<TxData | null>(null)
+  const [filter, setFilter] = useState<TxFilter>({ fundCode: 'all', type: 'all', from: '', to: '' })
+  const [sort, setSort] = useState<TxSort>({ key: 'date', dir: 'asc' })
+  const [formOpen, setFormOpen] = useState<FormState>(null)
+
   const [parse, setParse] = useState<ParseResult | null>(null)
   const [outcome, setOutcome] = useState<ImportOutcome | null>(null)
   const [edits, setEdits] = useState<Edits>({})
   const [busy, setBusy] = useState<'parsing' | 'committing' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const loadDataSummary = (): void => {
-    window.api.dataSummary().then(setData).catch((e) => setError(ipcErrorMessage(e)))
+  const hasData = txData !== null && (txData.transactions.length > 0 || txData.funds.length > 0)
+
+  const reload = (): void => {
+    window.api.txData().then(setTxData).catch((e) => setError(ipcErrorMessage(e)))
   }
 
   useEffect(() => {
-    loadDataSummary()
+    reload()
   }, [])
 
   const startImport = async (): Promise<void> => {
@@ -115,7 +127,7 @@ export default function Transactions(): React.JSX.Element {
       })
       setOutcome(result)
       setParse(null)
-      loadDataSummary()
+      reload()
     } catch (e) {
       setError(ipcErrorMessage(e))
     } finally {
@@ -130,44 +142,97 @@ export default function Transactions(): React.JSX.Element {
     setError(null)
   }
 
+  const submitForm = async (input: TransactionInput): Promise<void> => {
+    if (formOpen === null) return
+    if (formOpen.mode === 'create') {
+      await window.api.txCreate(input)
+    } else {
+      await window.api.txUpdate(formOpen.tx.id, input)
+    }
+    setFormOpen(null)
+    reload()
+  }
+
+  const deleteRow = async (row: TransactionRow): Promise<void> => {
+    const fundName = txData?.funds.find((f) => f.code === row.fundCode)?.name ?? row.fundCode
+    if (!window.confirm(`确认删除 ${row.date} ${row.type}「${fundName}」这笔流水？删除后汇总将重新计算。`)) return
+    try {
+      await window.api.txDelete(row.id)
+      reload()
+    } catch (e) {
+      setError(ipcErrorMessage(e))
+    }
+  }
+
   return (
     <section className="page">
       <div className="page-head">
         <h1>交易流水</h1>
-        <button
-          className="btn btn-primary"
-          onClick={startImport}
-          disabled={busy !== null || (data?.hasData ?? false)}
-          title={data?.hasData ? '已导入过数据，重复导入会重复计入（需先清空数据库）' : undefined}
-        >
-          {busy === 'parsing' ? '解析中…' : '导入 Excel'}
-        </button>
+        <div className="page-actions">
+          <button className="btn btn-primary" onClick={() => setFormOpen({ mode: 'create' })}>
+            新增流水
+          </button>
+          <button
+            className="btn"
+            onClick={startImport}
+            disabled={busy !== null || hasData}
+            title={hasData ? '已导入过数据，重复导入会重复计入（需先清空数据库）' : undefined}
+          >
+            {busy === 'parsing' ? '解析中…' : '导入 Excel'}
+          </button>
+        </div>
       </div>
 
       {error !== null && <div className="banner banner-error">{error}</div>}
 
-      {data?.hasData === true && data.totals !== null && (
+      {hasData && txData.totals !== null && (
         <div className="card summary-card">
           <div className="stat">
             <div className="stat-label">总资产</div>
-            <div className="stat-value">{formatMoney(data.totals.totalAssets)}</div>
+            <div className="stat-value">{formatMoney(txData.totals.totalAssets)}</div>
           </div>
           <div className="stat">
             <div className="stat-label">总盈亏</div>
-            <div className={`stat-value ${data.totals.totalPnl >= 0 ? 'positive' : 'negative'}`}>
-              {formatMoney(data.totals.totalPnl)}
+            <div className={`stat-value ${txData.totals.totalPnl >= 0 ? 'positive' : 'negative'}`}>
+              {formatMoney(txData.totals.totalPnl)}
             </div>
           </div>
           <div className="stat">
             <div className="stat-label">总收益率</div>
-            <div className={`stat-value ${(data.totals.totalReturnRate ?? 0) >= 0 ? 'positive' : 'negative'}`}>
-              {formatPercent(data.totals.totalReturnRate)}
+            <div className={`stat-value ${(txData.totals.totalReturnRate ?? 0) >= 0 ? 'positive' : 'negative'}`}>
+              {formatPercent(txData.totals.totalReturnRate)}
             </div>
           </div>
           <div className="stat">
             <div className="stat-label">落袋收益</div>
-            <div className="stat-value">{formatMoney(data.totals.realizedIncome)}</div>
+            <div className="stat-value">{formatMoney(txData.totals.realizedIncome)}</div>
           </div>
+        </div>
+      )}
+
+      {formOpen !== null && (
+        <TransactionForm
+          key={formOpen.mode === 'edit' ? formOpen.tx.id : 'new'}
+          funds={txData?.funds ?? []}
+          initial={formOpen.mode === 'edit' ? formOpen.tx : null}
+          onSubmit={submitForm}
+          onCancel={() => setFormOpen(null)}
+          onFundCreated={reload}
+        />
+      )}
+
+      {hasData && (
+        <div className="card">
+          <TransactionTable
+            rows={txData?.transactions ?? []}
+            funds={txData?.funds ?? []}
+            filter={filter}
+            onFilterChange={setFilter}
+            sort={sort}
+            onSortChange={setSort}
+            onEdit={(tx) => setFormOpen({ mode: 'edit', tx })}
+            onDelete={deleteRow}
+          />
         </div>
       )}
 
@@ -308,7 +373,7 @@ export default function Transactions(): React.JSX.Element {
           </table>
 
           <h3>持仓明细对账（{outcome.report.funds.length} 只基金）</h3>
-          {data?.hasData === true && data.positions.length > 0 && (
+          {txData !== null && txData.positions.length > 0 && (
             <table className="table">
               <thead>
                 <tr>
@@ -323,7 +388,7 @@ export default function Transactions(): React.JSX.Element {
                 </tr>
               </thead>
               <tbody>
-                {data.positions
+                {txData.positions
                   .filter((p) => p.shares !== 0)
                   .map((p) => {
                     const match = outcome.report.funds.find((f) => f.code === p.fundCode)?.match ?? false
@@ -353,9 +418,10 @@ export default function Transactions(): React.JSX.Element {
         </div>
       )}
 
-      {data?.hasData === false && parse === null && outcome === null && (
+      {!hasData && parse === null && outcome === null && (
         <p className="placeholder">
-          暂无流水数据。点击右上角「导入 Excel」选择投资跟踪.xlsx，导入前会先展示自动修复项与可疑项预览清单。
+          暂无流水数据。可点击右上角「导入 Excel」一键迁移投资跟踪.xlsx（导入前会展示预览清单），
+          或直接「新增流水」手动录入。
         </p>
       )}
     </section>

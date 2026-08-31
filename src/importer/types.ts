@@ -9,7 +9,8 @@ import type {
   SkippedSnapshot,
   Snapshot,
   Totals,
-  Transaction
+  Transaction,
+  TransactionRow
 } from '../engine'
 import type { ReconciliationReport } from './reconcile'
 
@@ -135,9 +136,10 @@ export interface ImportOutcome {
   report: ReconciliationReport
 }
 
-/** 当前库内数据摘要（交易流水页初始状态与导入后刷新用） */
-export interface DataSummary {
-  hasData: boolean
+/** 交易流水页全量数据（列表/筛选/汇总一次取回） */
+export interface TxData {
+  funds: Fund[]
+  transactions: TransactionRow[]
   totals: Totals | null
   positions: FundPosition[]
 }

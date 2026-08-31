@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
-import type { CommitPayload, DataSummary, ImportOutcome, ParseResult } from '../../importer/types'
+import type { FundInput, TransactionInput } from '../../engine'
+import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../../importer/types'
 
 declare global {
   interface DbInfo {
@@ -15,7 +16,11 @@ declare global {
       pickImportFile: () => Promise<string | null>
       parseImport: (filePath: string) => Promise<ParseResult>
       commitImport: (payload: CommitPayload) => Promise<ImportOutcome>
-      dataSummary: () => Promise<DataSummary>
+      txData: () => Promise<TxData>
+      txCreate: (input: TransactionInput) => Promise<void>
+      txUpdate: (id: number, input: TransactionInput) => Promise<void>
+      txDelete: (id: number) => Promise<void>
+      fundCreate: (input: FundInput) => Promise<void>
     }
   }
 }

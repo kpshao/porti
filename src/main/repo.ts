@@ -1,7 +1,7 @@
 // 数据访问层：数据库行 ↔ 领域类型（snake_case ↔ camelCase）
 
 import type Database from 'better-sqlite3'
-import type { CategoryTarget, Fund, NavPoint, Transaction } from '../engine'
+import type { CategoryTarget, Fund, NavPoint, Transaction, TransactionRow } from '../engine'
 
 export function selectFunds(db: Database.Database): Fund[] {
   const rows = db
@@ -23,12 +23,13 @@ export function selectCategoryTargets(db: Database.Database): CategoryTarget[] {
   return rows.map((r) => ({ category: r.category, targetRatio: r.target_ratio }))
 }
 
-export function selectTransactions(db: Database.Database): Transaction[] {
+export function selectTransactions(db: Database.Database): TransactionRow[] {
   const rows = db
     .prepare(
-      'SELECT date, type, fund_code, amount, shares, nav, fee, note FROM transactions ORDER BY date, id'
+      'SELECT id, date, type, fund_code, amount, shares, nav, fee, note FROM transactions ORDER BY date, id'
     )
     .all() as {
+    id: number
     date: string
     type: Transaction['type']
     fund_code: string
@@ -39,6 +40,7 @@ export function selectTransactions(db: Database.Database): Transaction[] {
     note: string | null
   }[]
   return rows.map((r) => ({
+    id: r.id,
     date: r.date,
     type: r.type,
     fundCode: r.fund_code,

@@ -23,6 +23,9 @@ export interface Transaction {
   note: string | null
 }
 
+/** 流水行：领域字段 + 数据库主键（编辑/删除定位用） */
+export type TransactionRow = Transaction & { id: number }
+
 export interface NavPoint {
   fundCode: string
   date: string // YYYY-MM-DD
