@@ -5,7 +5,8 @@ import {
   computeTotals,
   computeCategoryComparison,
   computeTimeSeries,
-  computeWeeklyReturn
+  computeWeeklyReturn,
+  computeStatsSeries
 } from './compute'
 
 // ---------- Golden fixtures：取自 投资跟踪.xlsx 持仓概览的真实数据 ----------
@@ -23,7 +24,7 @@ const goldenTransactions: Transaction[] = [
   { date: '2026-03-03', type: '买入', fundCode: '110017', amount: 70000, shares: 50067.32, nav: 1.397, fee: 55.96, note: null },
   // 002009 中欧瑾通A：4 笔买入 + 1 笔分红再投入（金额 0、只加份额）
   { date: '2026-03-03', type: '买入', fundCode: '002009', amount: 30000, shares: 19295.67, nav: 1.5532, fee: 29.97, note: null },
-  { date: '2026-04-16', type: '分红再投入', fundCode: '002009', amount: 0, shares: 77.56, nav: 1.0577, fee: 0, note: null },
+  { date: '2026-04-16', type: '分红再投入', fundCode: '002009', amount: 0, shares: 77.56, nav: 1.553, fee: 0, note: null },
   { date: '2026-06-12', type: '买入', fundCode: '002009', amount: 10000, shares: 6497.99, nav: 1.5374, fee: 0, note: null },
   { date: '2026-06-16', type: '买入', fundCode: '002009', amount: 10000, shares: 6459.34, nav: 1.5466, fee: null, note: null },
   { date: '2026-06-19', type: '买入', fundCode: '002009', amount: 10000, shares: 6419.49, nav: 1.4462, fee: null, note: null },
@@ -258,5 +259,89 @@ describe('总市值时间序列与周收益', () => {
     expect(weekly[1]).toBeNull() // 与 03-01 仅差 4 天
     expect(weekly[2]).toBeCloseTo(-5, 6) // 03-12 vs 03-05 差 7 天
     expect(weekly[3]).toBeCloseTo(15, 6) // 03-19 vs 03-12 差 7 天
+  })
+})
+
+describe('收益统计时间序列（含卖出与分红现金，期望值手算）', () => {
+  const funds: Fund[] = [
+    { code: 'A', name: '基金A', category: '权益', fundType: null, targetAmount: null },
+    { code: 'B', name: '基金B', category: '权益', fundType: null, targetAmount: null }
+  ]
+  const transactions: Transaction[] = [
+    { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
+    { date: '2026-01-05', type: '买入', fundCode: 'B', amount: 100, shares: 50, nav: 2, fee: 0, note: null },
+    { date: '2026-01-12', type: '分红现金', fundCode: 'A', amount: 20, shares: null, nav: null, fee: null, note: null },
+    { date: '2026-01-20', type: '卖出', fundCode: 'B', amount: -60, shares: -25, nav: 2.4, fee: 0, note: null }
+  ]
+  const navPoints: NavPoint[] = [
+    { fundCode: 'A', date: '2026-01-01', nav: 1, source: 'import' },
+    { fundCode: 'A', date: '2026-01-05', nav: 1, source: 'import' },
+    { fundCode: 'A', date: '2026-01-10', nav: 1.1, source: 'import' },
+    { fundCode: 'A', date: '2026-01-15', nav: 1.2, source: 'import' },
+    { fundCode: 'A', date: '2026-01-20', nav: 1.3, source: 'import' },
+    { fundCode: 'B', date: '2026-01-05', nav: 2, source: 'import' },
+    { fundCode: 'B', date: '2026-01-10', nav: 2.2, source: 'import' },
+    { fundCode: 'B', date: '2026-01-15', nav: 2.1, source: 'import' },
+    { fundCode: 'B', date: '2026-01-20', nav: 2.4, source: 'import' }
+  ]
+
+  it('逐日累计：净投入/落袋收益按日期截断，累计收益 = 市值 − 净投入 + 落袋', () => {
+    const series = computeStatsSeries(funds, transactions, navPoints)
+    expect(series.map((p) => p.date)).toEqual([
+      '2026-01-01',
+      '2026-01-05',
+      '2026-01-10',
+      '2026-01-15',
+      '2026-01-20'
+    ])
+    // 01-01：仅 A 建仓 100；净投入 100；累计收益 0
+    expect(series[0]).toMatchObject({
+      totalMarketValue: expect.closeTo(100, 6),
+      netCost: expect.closeTo(100, 6),
+      realizedIncome: 0,
+      totalReturn: expect.closeTo(0, 6),
+      weeklyReturn: null
+    })
+    // 01-05：A 100 + B 100；净投入 200；无 ≥7 天前基准
+    expect(series[1]).toMatchObject({
+      totalMarketValue: expect.closeTo(200, 6),
+      netCost: expect.closeTo(200, 6),
+      realizedIncome: 0,
+      totalReturn: 0,
+      weeklyReturn: null
+    })
+    // 01-10：市值 110+110；基准 01-01（差 9 天）：220 − 100 = 120
+    expect(series[2]).toMatchObject({
+      totalMarketValue: expect.closeTo(220, 6),
+      netCost: 200,
+      realizedIncome: 0,
+      totalReturn: expect.closeTo(20, 6),
+      weeklyReturn: { value: expect.closeTo(120, 6), baseDate: '2026-01-01' }
+    })
+    // 01-15：市值 120+105；分红现金 01-12 起计入落袋；基准 01-05（差 10 天）：225 − 200 = 25
+    expect(series[3]).toMatchObject({
+      totalMarketValue: expect.closeTo(225, 6),
+      netCost: 200,
+      realizedIncome: expect.closeTo(20, 6),
+      totalReturn: expect.closeTo(45, 6),
+      weeklyReturn: { value: expect.closeTo(25, 6), baseDate: '2026-01-05' }
+    })
+    // 01-20：卖出后 B 剩 25 份 ×2.4 = 60，市值 130+60；净投入 200−60=140；基准 01-10：190 − 220 = −30
+    expect(series[4]).toMatchObject({
+      totalMarketValue: expect.closeTo(190, 6),
+      netCost: expect.closeTo(140, 6),
+      realizedIncome: 20,
+      totalReturn: expect.closeTo(70, 6),
+      weeklyReturn: { value: expect.closeTo(-30, 6), baseDate: '2026-01-10' }
+    })
+  })
+
+  it('最后一个点与引擎汇总口径一致（总收益 = 持仓盈亏 + 落袋收益）', () => {
+    const series = computeStatsSeries(funds, transactions, navPoints)
+    const positions = computePositions(funds, transactions, navPoints)
+    const totals = computeTotals(positions, transactions)
+    const last = series[series.length - 1]
+    expect(last.totalMarketValue).toBeCloseTo(totals.totalAssets, 6)
+    expect(last.totalReturn).toBeCloseTo(totals.totalReturn, 6)
   })
 })

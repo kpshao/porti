@@ -83,3 +83,17 @@ export interface TimePoint {
   date: string
   totalMarketValue: number
 }
+
+/** 周收益：数值与基准日期成对出现（找不到基准时整体为 null）。 */
+export interface WeeklyReturn {
+  value: number // 周收益 = 本日市值 − ≥7 天前最近记录日市值
+  baseDate: string // 基准日期（≥7 天前最近的记录日）
+}
+
+/** 收益统计页时间序列点：总资产/净投入/落袋收益/累计收益/周收益。 */
+export interface StatsPoint extends TimePoint {
+  netCost: number // 截至当日净投入成本 = 累计买入 − 累计赎回
+  realizedIncome: number // 截至当日落袋收益 = Σ分红现金
+  totalReturn: number // 累计收益 = 总市值 − 净投入成本 + 落袋收益
+  weeklyReturn: WeeklyReturn | null // 无 ≥7 天前基准则为 null
+}

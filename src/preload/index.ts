@@ -3,6 +3,7 @@ import type { FundInput, TransactionInput } from '../engine'
 import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../importer/types'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from '../main/navTypes'
 import type { OverviewData } from '../main/overviewTypes'
+import type { StatsData } from '../main/statsTypes'
 
 // 渲染进程可用的最小 API 面，后续里程碑逐步扩展
 const api = {
@@ -26,7 +27,8 @@ const api = {
   targetUpdateCategory: (category: string, targetRatio: number): Promise<void> =>
     ipcRenderer.invoke('target:update-category', category, targetRatio),
   fundUpdateTarget: (code: string, targetAmount: number | null): Promise<void> =>
-    ipcRenderer.invoke('fund:update-target', code, targetAmount)
+    ipcRenderer.invoke('fund:update-target', code, targetAmount),
+  statsData: (): Promise<StatsData> => ipcRenderer.invoke('stats:data')
 }
 
 contextBridge.exposeInMainWorld('api', api)

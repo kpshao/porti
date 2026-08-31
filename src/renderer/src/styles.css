@@ -437,3 +437,25 @@ body {
   border-color: #3370ff;
   outline: none;
 }
+
+/* 收益统计页图表 */
+.chart {
+  width: 100%;
+}
+
+.chart-lg {
+  height: 260px;
+}
+
+/* 长表限高滚动，表头吸顶 */
+.table-scroll {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 1;
+}

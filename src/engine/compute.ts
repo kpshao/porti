@@ -6,7 +6,9 @@ import type {
   Totals,
   CategoryComparisonRow,
   CategoryTarget,
-  TimePoint
+  TimePoint,
+  StatsPoint,
+  WeeklyReturn
 } from './types'
 
 const NEVER = '9999-12-31'
@@ -153,11 +155,46 @@ export function daysBetween(a: string, b: string): number {
 
 /** 周收益（与时间序列等长）：最新记录日 vs ≥7 天前最近记录日的市值差；找不到基准则为 null。 */
 export function computeWeeklyReturn(series: TimePoint[]): (number | null)[] {
-  const result: (number | null)[] = new Array(series.length).fill(null)
-  for (let i = 0; i < series.length; i++) {
+  return weeklyReturnRows(series).map((r) => (r === null ? null : r.value))
+}
+
+/** 周收益明细：数值 + 基准日期（≥7 天前最近的记录日；无基准时整体为 null）。 */
+function weeklyReturnRows(series: TimePoint[]): (WeeklyReturn | null)[] {
+  return series.map((point, i) => {
     let j = i - 1
-    while (j >= 0 && daysBetween(series[j].date, series[i].date) < 7) j--
-    if (j >= 0) result[i] = series[i].totalMarketValue - series[j].totalMarketValue
-  }
-  return result
+    while (j >= 0 && daysBetween(series[j].date, point.date) < 7) j--
+    return j >= 0
+      ? { value: point.totalMarketValue - series[j].totalMarketValue, baseDate: series[j].date }
+      : null
+  })
+}
+
+/** 收益统计时间序列：每个有净值记录的日期一个点；净投入/落袋收益按日期截断累计。 */
+export function computeStatsSeries(
+  funds: Fund[],
+  transactions: Transaction[],
+  navPoints: NavPoint[]
+): StatsPoint[] {
+  const series = computeTimeSeries(funds, transactions, navPoints)
+  const weekly = weeklyReturnRows(series)
+  const sorted = [...transactions].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  let idx = 0
+  let netCost = 0
+  let realized = 0
+  return series.map((p, i) => {
+    while (idx < sorted.length && sorted[idx].date <= p.date) {
+      const t = sorted[idx]
+      // 库内约定：卖出金额存负值，直接累加即 买入 − 赎回；分红再投入金额为 0，成本不变
+      if (t.type === '买入' || t.type === '卖出') netCost += t.amount
+      else if (t.type === '分红现金') realized += t.amount
+      idx++
+    }
+    return {
+      ...p,
+      netCost,
+      realizedIncome: realized,
+      totalReturn: p.totalMarketValue - netCost + realized,
+      weeklyReturn: weekly[i]
+    }
+  })
 }

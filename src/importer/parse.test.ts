@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { join } from 'path'
-import { parseExcelFile } from './parse'
+import * as XLSX from 'xlsx'
+import { computeWeeklyReturn } from '../engine'
+import { parseExcelFile, parseWorkbook } from './parse'
 
 // 真实投资跟踪.xlsx 为 fixture（spec Testing Decisions 约定的 I/O 接缝）
 const FIXTURE = join(process.cwd(), '投资跟踪.xlsx')
@@ -61,10 +63,10 @@ describe('parseExcelFile — 真实投资跟踪.xlsx 黄金验收', () => {
       date: '2026-03-03', type: '买入', fundCode: '512890',
       amount: 39878.2, shares: 33200, nav: 1.201, fee: 0
     })
-    // 分红再投入：金额 0（成本不变）、只加份额
+    // 分红再投入：金额 0（成本不变）、只加份额（净值已由用户修正为同期值 1.553）
     expect(byRow.get(7)).toMatchObject({
       date: '2026-04-16', type: '分红再投入', fundCode: '002009',
-      amount: 0, shares: 77.56, nav: 1.0577
+      amount: 0, shares: 77.56, nav: 1.553
     })
     // 2025 年的历史买入（日期序列号 45679）
     expect(byRow.get(14)).toMatchObject({
@@ -108,16 +110,9 @@ describe('parseExcelFile — 真实投资跟踪.xlsx 黄金验收', () => {
     expect(p!.nav).toBeCloseTo(69893.97872 / 50067.32, 6)
   })
 
-  it('可疑项恰为 1.0577 分红再投入行，给出参考净值建议', () => {
-    expect(result.suspicious).toHaveLength(1)
-    const s = result.suspicious[0]
-    expect(s.excelRow).toBe(7)
-    expect(s.fundCode).toBe('002009')
-    const navField = s.fields.find((f) => f.field === 'nav')!
-    expect(navField.value).toBe(1.0577)
-    // 参考净值 = 最近快照（2026-04-18）重建值 29941.326965 ÷ 19373.23 ≈ 1.5455
-    expect(navField.suggested).toBeCloseTo(29941.326965 / 19373.23, 4)
-    expect(s.detail).toContain('净值')
+  it('可疑项为空：1.0577 异常行已在 Excel 中修正为同期值，无触发阈值', () => {
+    // 分红再投入 1.553 与同期参考净值偏差约 0.5% < 10%，不再判定为可疑
+    expect(result.suspicious).toEqual([])
   })
 
   it('持仓概览最新净值作为当前净值导入，日期取流水最大日期', () => {
@@ -157,5 +152,54 @@ describe('parseExcelFile — 真实投资跟踪.xlsx 黄金验收', () => {
     })
     expect(result.expectation.series[13].date).toBe('2026-08-11')
     expect(result.expectation.series[13].totalMarketValue).toBeCloseTo(758627.24876, 2)
+  })
+
+  it('周收益黄金值：真实数据手算抽查 2 个日期（08-11、07-31）', () => {
+    const weekly = computeWeeklyReturn(result.expectation.series)
+    expect(weekly[13]).toBeCloseTo(14256.58, 2) // 08-11 vs 07-31
+    expect(weekly[12]).toBeCloseTo(13440.67, 2) // 07-31 vs 06-29
+  })
+})
+
+// ---------- 合成工作簿：真实 Excel 已修正可疑行，可疑判定路径改用最小夹具覆盖 ----------
+
+/** 最小五表工作簿：999001 买入 1000 份 + 分红再投入净值 1.0577，快照市值 1530（参考净值 ≈1.4571） */
+function syntheticWorkbook(): XLSX.WorkBook {
+  const wb = XLSX.utils.book_new()
+  const put = (name: string, rows: unknown[][]): void => {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name)
+  }
+  put('基金列表', [
+    ['代码', '名称', '类型'],
+    ['999001', '测试基金', '二级债基']
+  ])
+  put('持仓概览', [['纯债', 1]])
+  put('交易流水', [
+    ['日期', '操作类型', '基金代码', '基金名称', '金额', '份额', '净值', '手续费', '备注'],
+    ['2026-01-02', '买入', '999001', '测试基金', 1000, 1000, 1, 0, ''],
+    ['2026-04-16', '分红再投入', '999001', '测试基金', null, 50, 1.0577, 0, '']
+  ])
+  put('收益明细', [
+    ['日期', '基金代码', '基金名称', '当日收益', '累计收益', '市值'],
+    ['2026-04-16', '999001', '测试基金', null, null, 1530]
+  ])
+  put('收益汇总', [['日期', null, null, '总市值']])
+  return wb
+}
+
+describe('parseWorkbook — 可疑判定（合成夹具）', () => {
+  const synthetic = parseWorkbook(syntheticWorkbook())
+
+  it('分红再投入净值偏离参考净值超过 10% 判定为可疑，给出参考净值建议', () => {
+    expect(synthetic.suspicious).toHaveLength(1)
+    const s = synthetic.suspicious[0]
+    expect(s.excelRow).toBe(3)
+    expect(s.fundCode).toBe('999001')
+    expect(s.type).toBe('分红再投入')
+    const navField = s.fields.find((f) => f.field === 'nav')!
+    expect(navField.value).toBe(1.0577)
+    // 参考净值 = 快照市值 ÷ 当日累计份额（1000 + 50）
+    expect(navField.suggested).toBeCloseTo(1530 / 1050, 4)
+    expect(s.detail).toContain('净值')
   })
 })

@@ -1,7 +1,13 @@
 // 数据 IPC 处理器（主进程侧）：Excel 导入、流水/基金增删改、数据读取
 
 import { dialog, ipcMain } from 'electron'
-import { computeCategoryComparison, computePositions, computeTimeSeries, computeTotals } from '../engine'
+import {
+  computeCategoryComparison,
+  computePositions,
+  computeStatsSeries,
+  computeTimeSeries,
+  computeTotals
+} from '../engine'
 import type { FundInput, TransactionInput } from '../engine'
 import { reconcileAgainstExcel } from '../importer/reconcile'
 import { parseExcelFile } from '../importer/parse'
@@ -14,6 +20,7 @@ import { getFetchStatus, runNavFetch, upsertManualNav } from './navService'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from './navTypes'
 import { updateCategoryTarget, updateFundTargetAmount } from './targetService'
 import type { OverviewData } from './overviewTypes'
+import type { StatsData } from './statsTypes'
 
 export function registerDataIpc(): void {
   // 选择 Excel 文件；取消返回 null
@@ -106,5 +113,19 @@ export function registerDataIpc(): void {
 
   ipcMain.handle('fund:update-target', (_event, code: string, targetAmount: number | null): void => {
     updateFundTargetAmount(getDb(), code, targetAmount)
+  })
+
+  // ---------- 收益统计页：时间序列（总资产/累计收益/周收益）+ 单基金盈亏排序 ----------
+
+  ipcMain.handle('stats:data', (): StatsData => {
+    const db = getDb()
+    if (!hasAnyData(db)) return { series: [], positions: [] }
+    const funds = selectFunds(db)
+    const transactions = selectTransactions(db)
+    const navPoints = selectNavPoints(db)
+    return {
+      series: computeStatsSeries(funds, transactions, navPoints),
+      positions: computePositions(funds, transactions, navPoints)
+    }
   })
 }
