@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
 import { BarChart, LineChart } from 'echarts/charts'
 import { GridComponent, MarkLineComponent, TooltipComponent } from 'echarts/components'
@@ -20,13 +20,15 @@ const AXIS_LINE = '#c3c2b7' // 轴线/零基线
 const MUTED_INK = '#86909c' // 弱化文字
 const PRIMARY_INK = '#1f2329' // 主文字
 
-/** 挂载即建图表实例，option 变化时整体替换；卸载销毁并解绑窗口缩放。 */
-function useEChart(option: EChartsCoreOption): React.RefObject<HTMLDivElement | null> {
-  const ref = useRef<HTMLDivElement>(null)
+/** 元素挂载即建图表实例，option 变化时整体替换；卸载销毁并解绑窗口缩放。
+ *  图表 div 在异步数据到达后才渲染（排序图还按行数条件渲染），
+ *  故用 callback ref 跟踪元素而非挂载时读 ref：init effect 依赖元素本身，
+ *  避免空依赖 effect 在 div 尚未挂载时早退、之后永不重跑。 */
+function useEChart(option: EChartsCoreOption): React.RefCallback<HTMLDivElement | null> {
+  const [el, setEl] = useState<HTMLDivElement | null>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
 
   useEffect(() => {
-    const el = ref.current
     if (el === null) return
     const chart = echarts.init(el)
     chartRef.current = chart
@@ -37,13 +39,15 @@ function useEChart(option: EChartsCoreOption): React.RefObject<HTMLDivElement | 
       chart.dispose()
       chartRef.current = null
     }
-  }, [])
+  }, [el])
 
+  // 依赖 el：数据到达（option 变）与元素挂载（el 变）可能分属两次提交，
+  // 若只依赖 option，init 之后的那次提交不会再应用 option（useMemo 对象稳定），图表将永不绘制。
   useEffect(() => {
     chartRef.current?.setOption(option, true)
-  }, [option])
+  }, [option, el])
 
-  return ref
+  return useCallback((node: HTMLDivElement | null): void => setEl(node), [])
 }
 
 /** 轴线/网格/提示的公共配置（日期类目轴 + 十字轴提示） */
