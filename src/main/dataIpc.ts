@@ -1,17 +1,19 @@
 // 数据 IPC 处理器（主进程侧）：Excel 导入、流水/基金增删改、数据读取
 
 import { dialog, ipcMain } from 'electron'
-import { computePositions, computeTimeSeries, computeTotals } from '../engine'
+import { computeCategoryComparison, computePositions, computeTimeSeries, computeTotals } from '../engine'
 import type { FundInput, TransactionInput } from '../engine'
 import { reconcileAgainstExcel } from '../importer/reconcile'
 import { parseExcelFile } from '../importer/parse'
 import { importToDb } from '../importer/write'
 import type { CommitPayload, ImportOutcome, TxData } from '../importer/types'
 import { getDb } from './db'
-import { hasAnyData, selectFunds, selectNavPoints, selectTransactions } from './repo'
+import { hasAnyData, selectCategoryTargets, selectFunds, selectNavPoints, selectTransactions } from './repo'
 import { createFund, createTransaction, deleteTransaction, updateTransaction } from './transactionService'
 import { getFetchStatus, runNavFetch, upsertManualNav } from './navService'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from './navTypes'
+import { updateCategoryTarget, updateFundTargetAmount } from './targetService'
+import type { OverviewData } from './overviewTypes'
 
 export function registerDataIpc(): void {
   // 选择 Excel 文件；取消返回 null
@@ -84,4 +86,25 @@ export function registerDataIpc(): void {
 
   // 启动自动抓取的最近状态（成功静默更新、失败不阻塞启动）
   ipcMain.handle('nav:fetch-status', (): FetchStatus => getFetchStatus())
+
+  // ---------- 概览页：卡片/持仓明细/大类对比 + 目标编辑 ----------
+
+  ipcMain.handle('overview:data', (): OverviewData => {
+    const db = getDb()
+    if (!hasAnyData(db)) return { funds: [], positions: [], totals: null, comparison: [] }
+    const funds = selectFunds(db)
+    const transactions = selectTransactions(db)
+    const navPoints = selectNavPoints(db)
+    const positions = computePositions(funds, transactions, navPoints)
+    const comparison = computeCategoryComparison(positions, selectCategoryTargets(db))
+    return { funds, positions, totals: computeTotals(positions, transactions), comparison }
+  })
+
+  ipcMain.handle('target:update-category', (_event, category: string, targetRatio: number): void => {
+    updateCategoryTarget(getDb(), category, targetRatio)
+  })
+
+  ipcMain.handle('fund:update-target', (_event, code: string, targetAmount: number | null): void => {
+    updateFundTargetAmount(getDb(), code, targetAmount)
+  })
 }

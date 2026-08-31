@@ -422,3 +422,18 @@ body {
   font-size: 13px;
   margin-bottom: 8px;
 }
+
+/* 表格行内编辑（概览页目标金额/目标比例） */
+.inline-edit {
+  border: 1px solid #c9cdd4;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 13px;
+  width: 110px;
+  background: #fff;
+}
+
+.inline-edit:focus {
+  border-color: #3370ff;
+  outline: none;
+}

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { FundInput, TransactionInput } from '../engine'
 import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../importer/types'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from '../main/navTypes'
+import type { OverviewData } from '../main/overviewTypes'
 
 // 渲染进程可用的最小 API 面，后续里程碑逐步扩展
 const api = {
@@ -20,7 +21,12 @@ const api = {
   navData: (): Promise<NavData> => ipcRenderer.invoke('nav:data'),
   navFetch: (): Promise<NavFetchResult> => ipcRenderer.invoke('nav:fetch'),
   navPut: (input: NavInput): Promise<void> => ipcRenderer.invoke('nav:put', input),
-  navFetchStatus: (): Promise<FetchStatus> => ipcRenderer.invoke('nav:fetch-status')
+  navFetchStatus: (): Promise<FetchStatus> => ipcRenderer.invoke('nav:fetch-status'),
+  overviewData: (): Promise<OverviewData> => ipcRenderer.invoke('overview:data'),
+  targetUpdateCategory: (category: string, targetRatio: number): Promise<void> =>
+    ipcRenderer.invoke('target:update-category', category, targetRatio),
+  fundUpdateTarget: (code: string, targetAmount: number | null): Promise<void> =>
+    ipcRenderer.invoke('fund:update-target', code, targetAmount)
 }
 
 contextBridge.exposeInMainWorld('api', api)

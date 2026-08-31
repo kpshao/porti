@@ -17,6 +17,7 @@
     "src/engine/**/*",
     "src/importer/types.ts",
     "src/importer/reconcile.ts",
-    "src/main/navTypes.ts"
+    "src/main/navTypes.ts",
+    "src/main/overviewTypes.ts"
   ]
 }
