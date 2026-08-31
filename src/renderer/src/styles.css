@@ -81,3 +81,197 @@ body {
   line-height: 1.9;
   word-break: break-all;
 }
+
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.page-head h1 {
+  margin-bottom: 0;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.card h3 {
+  font-size: 14px;
+  margin: 16px 0 8px;
+}
+
+.muted {
+  color: #86909c;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.banner {
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.banner-error {
+  background: #ffece8;
+  border: 1px solid #f53f3f;
+  color: #f53f3f;
+}
+
+.btn {
+  border: 1px solid #c9cdd4;
+  background: #fff;
+  color: #1f2329;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: #f2f3f5;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: #3370ff;
+  border-color: #3370ff;
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #2860e8;
+}
+
+.btn-small {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.summary-card {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.stat-label {
+  color: #86909c;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.positive {
+  color: #e03c3c; /* 中国习惯：红涨（正收益） */
+}
+
+.negative {
+  color: #00b42a;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid #e5e6eb;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.table th {
+  color: #86909c;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.fix-list {
+  list-style: none;
+  font-size: 13px;
+}
+
+.fix-list li {
+  padding: 6px 0;
+  border-bottom: 1px dashed #e5e6eb;
+}
+
+.fix-tag {
+  display: inline-block;
+  background: #e8f3ff;
+  color: #3370ff;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 12px;
+  margin-right: 6px;
+}
+
+.fix-detail {
+  margin-left: 40px;
+}
+
+.field-edits {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-edit label {
+  color: #86909c;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.field-edit input {
+  border: 1px solid #c9cdd4;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 13px;
+  width: 130px;
+}
+
+.preview-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.match-ok {
+  color: #00b42a;
+  font-weight: 600;
+}
+
+.match-bad {
+  color: #f53f3f;
+  font-weight: 600;
+}

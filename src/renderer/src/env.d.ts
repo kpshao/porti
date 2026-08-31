@@ -1,13 +1,21 @@
 /// <reference types="vite/client" />
 
-interface DbInfo {
-  path: string
-  tables: string[]
-  schemaVersion: number
-}
+import type { CommitPayload, DataSummary, ImportOutcome, ParseResult } from '../../importer/types'
 
-interface Window {
-  api: {
-    dbInfo: () => Promise<DbInfo>
+declare global {
+  interface DbInfo {
+    path: string
+    tables: string[]
+    schemaVersion: number
+  }
+
+  interface Window {
+    api: {
+      dbInfo: () => Promise<DbInfo>
+      pickImportFile: () => Promise<string | null>
+      parseImport: (filePath: string) => Promise<ParseResult>
+      commitImport: (payload: CommitPayload) => Promise<ImportOutcome>
+      dataSummary: () => Promise<DataSummary>
+    }
   }
 }

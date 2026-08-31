@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { initDatabase, dbInfo } from './db'
+import { registerImportIpc } from './importIpc'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -31,6 +32,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   initDatabase()
   ipcMain.handle('db:info', () => dbInfo())
+  registerImportIpc()
   createWindow()
 
   app.on('activate', () => {
