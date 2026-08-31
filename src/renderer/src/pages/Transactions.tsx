@@ -6,6 +6,7 @@ import TransactionForm from '../components/TransactionForm'
 import TransactionTable from '../components/TransactionTable'
 import type { TxFilter, TxSort } from '../components/TransactionTable'
 import { formatMoney, formatNav, formatPercent, formatShares } from '../utils/format'
+import { ipcErrorMessage } from '../utils/ipc'
 
 /** 可疑行编辑值：键为 Excel 行号，值为用户修改后的字段 */
 type Edits = Record<string, Partial<Transaction>>
@@ -40,11 +41,6 @@ function toNumberOrNull(value: string): number | null {
   if (value.trim() === '') return null
   const n = Number(value)
   return Number.isFinite(n) ? n : null
-}
-
-function ipcErrorMessage(e: unknown): string {
-  const raw = e instanceof Error ? e.message : String(e)
-  return raw.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
 }
 
 export default function Transactions(): React.JSX.Element {

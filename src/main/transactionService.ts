@@ -14,7 +14,8 @@ export function createFund(db: Database.Database, input: FundInput): Fund {
   return fund
 }
 
-function ensureFundExists(db: Database.Database, fundCode: string): void {
+/** 基金存在性检查（流水与净值服务共用） */
+export function ensureFundExists(db: Database.Database, fundCode: string): void {
   const exists = db.prepare('SELECT 1 FROM funds WHERE code = ?').get(fundCode)
   if (exists === undefined) throw new Error(`基金 ${fundCode} 不存在，请先在基金列表新建`)
 }

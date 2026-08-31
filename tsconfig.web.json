@@ -12,5 +12,11 @@
     "useDefineForClassFields": true,
     "noEmit": true
   },
-  "include": ["src/renderer/src/**/*", "src/engine/**/*", "src/importer/types.ts", "src/importer/reconcile.ts"]
+  "include": [
+    "src/renderer/src/**/*",
+    "src/engine/**/*",
+    "src/importer/types.ts",
+    "src/importer/reconcile.ts",
+    "src/main/navTypes.ts"
+  ]
 }

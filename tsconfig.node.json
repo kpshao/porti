@@ -17,6 +17,7 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/engine/**/*",
-    "src/importer/**/*"
+    "src/importer/**/*",
+    "src/fetcher/**/*"
   ]
 }

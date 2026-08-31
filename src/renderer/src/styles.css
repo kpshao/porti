@@ -130,6 +130,18 @@ body {
   color: #f53f3f;
 }
 
+.banner-success {
+  background: #e8ffea;
+  border: 1px solid #00b42a;
+  color: #00b42a;
+}
+
+.banner-info {
+  background: #e8f3ff;
+  border: 1px solid #3370ff;
+  color: #3370ff;
+}
+
 .btn {
   border: 1px solid #c9cdd4;
   background: #fff;
@@ -335,6 +347,22 @@ body {
 .tag-reinvest {
   background: #f5e8ff;
   color: #722ed1;
+}
+
+/* 净值来源标记 */
+.tag-source-import {
+  background: #e8f3ff;
+  color: #3370ff;
+}
+
+.tag-source-auto {
+  background: #e8ffea;
+  color: #00b42a;
+}
+
+.tag-source-manual {
+  background: #fff3e8;
+  color: #f77234;
 }
 
 .btn-danger {

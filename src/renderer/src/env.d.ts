@@ -2,6 +2,7 @@
 
 import type { FundInput, TransactionInput } from '../../engine'
 import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../../importer/types'
+import type { FetchStatus, NavData, NavFetchResult, NavInput } from '../../main/navTypes'
 
 declare global {
   interface DbInfo {
@@ -21,6 +22,10 @@ declare global {
       txUpdate: (id: number, input: TransactionInput) => Promise<void>
       txDelete: (id: number) => Promise<void>
       fundCreate: (input: FundInput) => Promise<void>
+      navData: () => Promise<NavData>
+      navFetch: () => Promise<NavFetchResult>
+      navPut: (input: NavInput) => Promise<void>
+      navFetchStatus: () => Promise<FetchStatus>
     }
   }
 }

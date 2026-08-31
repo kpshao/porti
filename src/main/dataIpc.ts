@@ -10,6 +10,8 @@ import type { CommitPayload, ImportOutcome, TxData } from '../importer/types'
 import { getDb } from './db'
 import { hasAnyData, selectFunds, selectNavPoints, selectTransactions } from './repo'
 import { createFund, createTransaction, deleteTransaction, updateTransaction } from './transactionService'
+import { getFetchStatus, runNavFetch, upsertManualNav } from './navService'
+import type { FetchStatus, NavData, NavFetchResult, NavInput } from './navTypes'
 
 export function registerDataIpc(): void {
   // 选择 Excel 文件；取消返回 null
@@ -64,4 +66,22 @@ export function registerDataIpc(): void {
   })
 
   ipcMain.handle('fund:create', (_event, input: FundInput) => createFund(getDb(), input))
+
+  // ---------- 净值管理页：历史数据 + 一键抓取 + 手动补录 + 启动抓取状态 ----------
+
+  ipcMain.handle('nav:data', (): NavData => {
+    const db = getDb()
+    if (!hasAnyData(db)) return { funds: [], navPoints: [] }
+    return { funds: selectFunds(db), navPoints: selectNavPoints(db) }
+  })
+
+  // 一键抓取：网络错误抛出交由界面提示（状态同时记录供横幅展示）
+  ipcMain.handle('nav:fetch', (): Promise<NavFetchResult> => runNavFetch(getDb()))
+
+  ipcMain.handle('nav:put', (_event, input: NavInput): void => {
+    upsertManualNav(getDb(), input)
+  })
+
+  // 启动自动抓取的最近状态（成功静默更新、失败不阻塞启动）
+  ipcMain.handle('nav:fetch-status', (): FetchStatus => getFetchStatus())
 }

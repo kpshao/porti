@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
-import { initDatabase, dbInfo } from './db'
+import { initDatabase, dbInfo, getDb } from './db'
 import { registerDataIpc } from './dataIpc'
+import { autoFetchNavs } from './navService'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -34,6 +35,9 @@ app.whenReady().then(() => {
   ipcMain.handle('db:info', () => dbInfo())
   registerDataIpc()
   createWindow()
+
+  // 启动自动抓取净值：不阻塞启动、失败静默（状态由净值管理页横幅展示）
+  void autoFetchNavs(getDb())
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
