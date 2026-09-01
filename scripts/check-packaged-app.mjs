@@ -191,23 +191,63 @@ function runAppleScriptChecked(script) {
   }
 }
 
+/** 探测 Porti 的窗口/对话框结构（诊断用；结构差异大时返回 raw 字符串） */
+function dialogState() {
+  const r = spawnSync(
+    'osascript',
+    [
+      '-e',
+      `tell application "System Events"
+  tell process "Porti"
+    set info to "frontmost=" & (frontmost as text) & " wins=" & (count of windows)
+    repeat with i from 1 to (count of windows)
+      try
+        set info to info & " | w" & i & ":" & (name of window i)
+        set info to info & " sheets=" & (count of sheets of window i)
+      end try
+      try
+        set info to info & " field1=" & (value of text field 1 of sheet 1 of window i)
+      end try
+    end repeat
+    return info
+  end tell
+end tell`
+    ],
+    { timeout: 10000, encoding: 'utf8' }
+  )
+  return r.status === 0 ? r.stdout.trim() : `(探测失败 ${r.stderr.trim()})`
+}
+
+/** 全屏截图取证（需终端具备「屏幕录制」权限，否则只截到桌面壁纸） */
+function captureScreen(name) {
+  try {
+    spawnSync('screencapture', ['-x', join(SHOTS, name)], { timeout: 15000 })
+  } catch {}
+}
+
 /** 对话框内跳转到指定路径并回车确认（打开对话框会选中文件；保存对话框落到该目录） */
 async function dialogGoTo(path) {
   if (MANUAL) return // 手动模式：仅打印提示，由用户完成对话框
-  runAppleScriptChecked('tell application "System Events" to tell process "Porti" to set frontmost to true')
   spawnSync('osascript', ['-e', `set the clipboard to ${JSON.stringify(path)}`])
-  runAppleScriptChecked('tell application "System Events" to keystroke "g" using {command down, shift down}')
-  await sleep(600)
-  runAppleScriptChecked('tell application "System Events" to keystroke "v" using {command down}')
-  await sleep(400)
-  runAppleScriptChecked('tell application "System Events" to key code 36')
-  await sleep(1000)
+  // 进程定向按键（keystroke 落在 process 内，不依赖全局前台）；每步留足动画时间
+  runAppleScriptChecked(`tell application "System Events"
+  tell process "Porti"
+    set frontmost to true
+    delay 0.3
+    keystroke "g" using {command down, shift down}
+    delay 1.0
+    keystroke "v" using {command down}
+    delay 0.6
+    key code 36
+  end tell
+end tell`)
+  await sleep(1200)
 }
 
 // ---- 4. 导入 Excel -----------------------------------------------------------
 await clickNav('交易流水')
 if (!(await clickButtonByText('导入 Excel'))) fail('未找到「导入 Excel」按钮')
-await sleep(800)
+await sleep(1500)
 if (MANUAL) {
   console.log(`  → 请在文件对话框中选择：${XLSX}（Cmd+Shift+G 输入路径回车，再回车确认）`)
 }
@@ -223,8 +263,26 @@ const previewOk = await waitFor(async () => {
     await sleep(2000)
   }
   return false
-}, DIALOG_TIMEOUT)
-if (!previewOk) fail('导入预览未出现（文件对话框是否选中了投资跟踪.xlsx？）')
+}, 25000)
+// 一轮未成：整段重试一次（对话框可能尚未就绪或首轮按键被吞）
+if (!previewOk && !MANUAL) {
+  console.log(`  → 首轮对话框自动操作未生效，重试。窗口状态：${dialogState()}`)
+  captureScreen('dialog-retry-before.png')
+  await dialogGoTo(XLSX)
+  const retryOk = await waitFor(async () => {
+    const shown = await evaluate(`document.body.innerText.includes('导入预览')`).catch(() => false)
+    if (shown) return true
+    runAppleScriptChecked('tell application "System Events" to key code 36')
+    await sleep(1500)
+    return false
+  }, 25000)
+  if (!retryOk) {
+    captureScreen('dialog-failed.png')
+    fail(`导入预览未出现。窗口状态：${dialogState()}`)
+  }
+} else if (!previewOk) {
+  fail('导入预览未出现（文件对话框是否选中了投资跟踪.xlsx？）')
+}
 
 const previewText = await evaluate(`document.body.innerText`)
 if (!previewText.includes(`预计导入 ${GOLDEN.fundCount} 只基金、${GOLDEN.transactionCount} 笔流水`)) {
@@ -340,7 +398,23 @@ const exported = await waitFor(async () => {
   }
   return false
 }, DIALOG_TIMEOUT)
-if (!exported) fail(`导出文件未出现：${expectedFile}（${MANUAL ? '保存对话框中未完成存储？' : ''}）`)
+if (!exported && !MANUAL) {
+  // 保存对话框失败重试一次（与导入同策略）
+  console.log(`  → 保存对话框首轮未成，重试。窗口状态：${dialogState()}`)
+  await dialogGoTo(EXPORT_DIR)
+  const exportedRetry = await waitFor(async () => {
+    if (existsSync(expectedFile)) return true
+    runAppleScriptChecked('tell application "System Events" to key code 36')
+    await sleep(1500)
+    return false
+  }, 25000)
+  if (!exportedRetry) {
+    captureScreen('dialog-export-failed.png')
+    fail(`导出文件未出现：${expectedFile}。窗口状态：${dialogState()}`)
+  }
+} else if (!exported) {
+  fail(`导出文件未出现：${expectedFile}（保存对话框中未完成存储？）`)
+}
 console.log(`  导出：${expectedFile} ✓`)
 
 // 回读导出文件：三表齐全 + 概览汇总「总资产」与界面一致
