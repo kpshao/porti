@@ -52,11 +52,16 @@ const GOLDEN = {
   transactionCount: 69
 }
 
-// 备份首次安装前的旧用户数据（若存在），保证「全新导入」起点
+// 备份并移除首次安装前的旧数据，保证「全新安装首次导入」起点。
+// 注意 macOS 文件系统大小写不敏感：「Porti」与「porti」是同一目录，
+// 开发版与安装版共享本目录，因此必须先移除旧库，否则会重复导入导致断言失真。
 const backupSuffix = `.bak-${new Date().toISOString().slice(0, 10)}`
 for (const name of ['porti.db', 'porti.db-wal', 'porti.db-shm', 'settings.json']) {
   const f = join(USER_DATA, name)
-  if (existsSync(f)) cpSync(f, `${f}${backupSuffix}`, { force: true })
+  if (existsSync(f)) {
+    cpSync(f, `${f}${backupSuffix}`, { force: true })
+    rmSync(f)
+  }
 }
 
 // 退出可能残留的安装版实例
@@ -229,7 +234,9 @@ function captureScreen(name) {
 async function dialogGoTo(path) {
   if (MANUAL) return // 手动模式：仅打印提示，由用户完成对话框
   spawnSync('osascript', ['-e', `set the clipboard to ${JSON.stringify(path)}`])
-  // 进程定向按键（keystroke 落在 process 内，不依赖全局前台）；每步留足动画时间
+  // 进程定向按键（keystroke 落在 process 内，不依赖全局前台）；每步留足动画时间。
+  // 回车必须用 keystroke return：key code 36（CGEvent 键码）在 macOS 26 的
+  // NSSavePanel/NSOpenPanel 上不触发默认按钮（实测 6 次回车无反应）。
   runAppleScriptChecked(`tell application "System Events"
   tell process "Porti"
     set frontmost to true
@@ -238,7 +245,7 @@ async function dialogGoTo(path) {
     delay 1.0
     keystroke "v" using {command down}
     delay 0.6
-    key code 36
+    keystroke return
   end tell
 end tell`)
   await sleep(1200)
@@ -257,7 +264,7 @@ const previewOk = await waitFor(async () => {
   const shown = await evaluate(`document.body.innerText.includes('导入预览')`).catch(() => false)
   if (shown) return true
   if (!MANUAL) {
-    runAppleScriptChecked('tell application "System Events" to key code 36')
+    runAppleScriptChecked('tell application "System Events" to keystroke return')
     await sleep(1500)
   } else {
     await sleep(2000)
@@ -272,7 +279,7 @@ if (!previewOk && !MANUAL) {
   const retryOk = await waitFor(async () => {
     const shown = await evaluate(`document.body.innerText.includes('导入预览')`).catch(() => false)
     if (shown) return true
-    runAppleScriptChecked('tell application "System Events" to key code 36')
+    runAppleScriptChecked('tell application "System Events" to keystroke return')
     await sleep(1500)
     return false
   }, 25000)
@@ -391,7 +398,7 @@ await dialogGoTo(EXPORT_DIR)
 const exported = await waitFor(async () => {
   if (existsSync(expectedFile)) return true
   if (!MANUAL) {
-    runAppleScriptChecked('tell application "System Events" to key code 36') // 补一次回车触发「保存」
+    runAppleScriptChecked('tell application "System Events" to keystroke return') // 补一次回车触发「保存」
     await sleep(1500)
   } else {
     await sleep(2000)
@@ -404,7 +411,7 @@ if (!exported && !MANUAL) {
   await dialogGoTo(EXPORT_DIR)
   const exportedRetry = await waitFor(async () => {
     if (existsSync(expectedFile)) return true
-    runAppleScriptChecked('tell application "System Events" to key code 36')
+    runAppleScriptChecked('tell application "System Events" to keystroke return')
     await sleep(1500)
     return false
   }, 25000)
