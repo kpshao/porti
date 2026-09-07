@@ -1,6 +1,9 @@
 // SQLite 数据模型（与 .scratch/porti-v1/spec.md 一致）。
 // 独立成模块以便测试用 :memory: 数据库复用同一 schema。
 
+/** 当前 schema 版本（PRAGMA user_version）；换机迁移按它校验/预留升级路径 */
+export const SCHEMA_VERSION = 1
+
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS funds (
   code TEXT PRIMARY KEY,          -- 6 位基金代码，字符串存储防前导零丢失

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import FirstRunDialog from './components/FirstRunDialog'
 import Overview from './pages/Overview'
 import Transactions from './pages/Transactions'
 import NavHistory from './pages/NavHistory'
@@ -36,6 +37,7 @@ export default function App(): React.JSX.Element {
       <main className="content">
         <ActivePage />
       </main>
+      <FirstRunDialog />
     </div>
   )
 }

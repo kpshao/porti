@@ -3,6 +3,7 @@
 import type { FundInput, TransactionInput } from '../../engine'
 import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../../importer/types'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from '../../main/navTypes'
+import type { MigrationMeta } from '../../main/migrationService'
 import type { OverviewData } from '../../main/overviewTypes'
 import type { StatsData } from '../../main/statsTypes'
 
@@ -36,6 +37,10 @@ declare global {
       exportCsv: () => Promise<{ dir: string; files: string[] } | null>
       setDbPath: () => Promise<{ path: string; changed: boolean } | null>
       relaunchApp: () => Promise<void>
+      exportMigrationBundle: () => Promise<{ path: string } | null>
+      importMigrationBundle: () => Promise<{ backupPath: string | null; meta: MigrationMeta } | null>
+      migrationFirstRunCheck: () => Promise<{ shouldPrompt: boolean }>
+      dismissMigrationPrompt: () => Promise<void>
     }
   }
 }

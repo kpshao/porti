@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { FundInput, TransactionInput } from '../engine'
 import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../importer/types'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from '../main/navTypes'
+import type { MigrationMeta } from '../main/migrationService'
 import type { OverviewData } from '../main/overviewTypes'
 import type { StatsData } from '../main/statsTypes'
 
@@ -33,7 +34,14 @@ const api = {
   exportCsv: (): Promise<{ dir: string; files: string[] } | null> => ipcRenderer.invoke('export:csv'),
   setDbPath: (): Promise<{ path: string; changed: boolean } | null> =>
     ipcRenderer.invoke('settings:set-db-path'),
-  relaunchApp: (): Promise<void> => ipcRenderer.invoke('app:relaunch')
+  relaunchApp: (): Promise<void> => ipcRenderer.invoke('app:relaunch'),
+  exportMigrationBundle: (): Promise<{ path: string } | null> =>
+    ipcRenderer.invoke('migration:export'),
+  importMigrationBundle: (): Promise<{ backupPath: string | null; meta: MigrationMeta } | null> =>
+    ipcRenderer.invoke('migration:import'),
+  migrationFirstRunCheck: (): Promise<{ shouldPrompt: boolean }> =>
+    ipcRenderer.invoke('migration:first-run-check'),
+  dismissMigrationPrompt: (): Promise<void> => ipcRenderer.invoke('settings:dismiss-migration-prompt')
 }
 
 contextBridge.exposeInMainWorld('api', api)

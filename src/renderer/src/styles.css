@@ -470,3 +470,38 @@ body {
   background: #fff;
   z-index: 1;
 }
+
+/* 首启迁移引导弹窗 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  width: 440px;
+  max-width: 90vw;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.modal h2 {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.modal p {
+  font-size: 14px;
+  line-height: 1.8;
+  margin-bottom: 12px;
+}
+
+.modal .banner {
+  margin-bottom: 12px;
+}

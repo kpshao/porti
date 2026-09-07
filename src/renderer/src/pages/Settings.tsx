@@ -3,7 +3,7 @@ import { ipcErrorMessage } from '../utils/ipc'
 
 export default function Settings(): React.JSX.Element {
   const [dbInfo, setDbInfo] = useState<DbInfo | null>(null)
-  const [busy, setBusy] = useState<'excel' | 'csv' | 'path' | null>(null)
+  const [busy, setBusy] = useState<'excel' | 'csv' | 'path' | 'migrate-out' | 'migrate-in' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [newPath, setNewPath] = useState<string | null>(null)
@@ -12,8 +12,11 @@ export default function Settings(): React.JSX.Element {
     window.api.dbInfo().then(setDbInfo).catch((e) => setError(ipcErrorMessage(e)))
   }, [])
 
-  /** 异步操作的公共包装：清旧消息 → 忙态 → 错误回显 → 复位（三个按钮共用） */
-  const run = async (busyKey: 'excel' | 'csv' | 'path', fn: () => Promise<void>): Promise<void> => {
+  /** 异步操作的公共包装：清旧消息 → 忙态 → 错误回显 → 复位（各按钮共用） */
+  const run = async (
+    busyKey: 'excel' | 'csv' | 'path' | 'migrate-out' | 'migrate-in',
+    fn: () => Promise<void>
+  ): Promise<void> => {
     setError(null)
     setMessage(null)
     setBusy(busyKey)
@@ -52,6 +55,26 @@ export default function Settings(): React.JSX.Element {
       }
       setNewPath(result.path)
       setMessage(`数据文件已复制到新位置：${result.path}。重启软件后生效。`)
+    })
+  }
+
+  const doExportBundle = (): void => {
+    void run('migrate-out', async () => {
+      const result = await window.api.exportMigrationBundle()
+      if (result === null) return
+      setMessage(`已导出迁移包：${result.path}（换电脑时在新电脑上导入它即可）`)
+    })
+  }
+
+  const doImportBundle = (): void => {
+    void run('migrate-in', async () => {
+      const result = await window.api.importMigrationBundle()
+      if (result === null) return
+      setMessage(
+        result.backupPath !== null
+          ? `导入成功，原数据已自动备份到：${result.backupPath}`
+          : '导入成功。'
+      )
     })
   }
 
@@ -102,6 +125,22 @@ export default function Settings(): React.JSX.Element {
           </button>
           <button className="btn" onClick={doExportCsv} disabled={busy !== null}>
             {busy === 'csv' ? '导出中…' : '导出 CSV'}
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>换机迁移</h2>
+        <p className="muted">
+          在旧电脑上「导出迁移包」得到单个 .portibak 文件（全部数据 + 版本信息）；在新电脑上「导入迁移包」
+          即可完整恢复，导入前会自动备份现有数据。
+        </p>
+        <div className="settings-actions">
+          <button className="btn btn-primary" onClick={doExportBundle} disabled={busy !== null}>
+            {busy === 'migrate-out' ? '导出中…' : '导出迁移包'}
+          </button>
+          <button className="btn" onClick={doImportBundle} disabled={busy !== null}>
+            {busy === 'migrate-in' ? '导入中…' : '导入迁移包…'}
           </button>
         </div>
       </div>

@@ -2,9 +2,10 @@ import { mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 import Database from 'better-sqlite3'
 import { app } from 'electron'
-import { SCHEMA } from './schema'
+import { SCHEMA, SCHEMA_VERSION } from './schema'
 import { loadSettings } from './settingsStore'
 import { seedDefaultCategoryTargets } from './targetService'
+import { replaceDbFile } from './migrationService'
 
 let db: Database.Database
 
@@ -18,15 +19,21 @@ export function initDatabase(): void {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   const version = db.pragma('user_version', { simple: true }) as number
-  if (version < 1) {
+  if (version < SCHEMA_VERSION) {
     db.exec(SCHEMA)
     seedDefaultCategoryTargets(db) // 新库种子默认大类目标（Excel 导入会用导入值覆盖）
-    db.pragma('user_version = 1')
+    db.pragma(`user_version = ${SCHEMA_VERSION}`)
   }
 }
 
 export function getDb(): Database.Database {
   return db
+}
+
+/** 导入迁移包热替换：关闭当前连接 → 替换数据文件 → 重新打开（失败抛错，调用方回退重启） */
+export function swapDatabase(bundlePath: string): void {
+  replaceDbFile(db, bundlePath)
+  initDatabase()
 }
 
 export function dbInfo(): { path: string; tables: string[]; schemaVersion: number } {

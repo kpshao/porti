@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { loadSettings, saveDbPath } from './settingsStore'
+import { loadSettings, saveDbPath, saveMigrationPromptDismissed } from './settingsStore'
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'porti-settings-'))
@@ -39,5 +39,33 @@ describe('settingsStore — 数据文件位置持久化', () => {
 
     writeFileSync(join(dir, 'settings.json'), JSON.stringify({ dbPath: '' }), 'utf8')
     expect(loadSettings(dir).dbPath).toBeNull()
+  })
+})
+
+describe('settingsStore — 首启迁移引导跳过标记', () => {
+  it('默认未跳过；保存后可读回，且不影响 dbPath', () => {
+    const dir = tempDir()
+    expect(loadSettings(dir).migrationPromptDismissed).toBe(false)
+
+    saveMigrationPromptDismissed(dir)
+    const saved = loadSettings(dir)
+    expect(saved.migrationPromptDismissed).toBe(true)
+    expect(saved.dbPath).toBeNull()
+  })
+
+  it('保存数据文件位置不会丢失跳过标记（旧实现会整文件覆盖）', () => {
+    const dir = tempDir()
+    saveMigrationPromptDismissed(dir)
+    saveDbPath(dir, '/x/porti.db')
+
+    const saved = loadSettings(dir)
+    expect(saved.dbPath).toBe('/x/porti.db')
+    expect(saved.migrationPromptDismissed).toBe(true)
+  })
+
+  it('配置文件损坏时标记按未跳过处理', () => {
+    const dir = tempDir()
+    writeFileSync(join(dir, 'settings.json'), '{ 损坏的 json', 'utf8')
+    expect(loadSettings(dir).migrationPromptDismissed).toBe(false)
   })
 })
