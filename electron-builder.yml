@@ -18,6 +18,9 @@ files:
 npmRebuild: false
 
 mac:
+  # 定制图标源文件 build/icon.svg（1024px 透明圆角方底），electron-builder
+  # 由 icon.png 自动生成 icns。
+  icon: build/icon.png
   category: public.app-category.finance
   # V1 无 Apple 证书：ad-hoc 签名保证 Apple Silicon 可直接运行；
   # 未经公证，首次打开需右键 → 打开（Gatekeeper 拦截）。
@@ -27,8 +30,11 @@ mac:
     - dmg
 
 win:
+  # 定制图标用于 NSIS 安装器；exe 资源编辑仍需 wine（见下）。
+  icon: build/icon.png
   # macOS 上交叉构建 Windows 包：跳过 exe 图标/版本资源编辑（该步骤需要 wine），
-  # V1 exe 使用 Electron 默认图标与版本信息。
+  # 因此安装后的 exe 与快捷方式图标仍为 Electron 默认，待 Windows 侧构建时
+  # 删除本行恢复编辑。
   signAndEditExecutable: false
   target:
     # 架构固定 x64（构建机是 arm64 时默认会产出 arm64 exe，但用户换机场景
