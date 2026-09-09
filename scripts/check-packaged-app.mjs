@@ -322,7 +322,7 @@ const money = (s) => Number(String(s).replace(/,/g, ''))
 const checks = [
   ['总资产', (v) => Math.abs(money(v) - GOLDEN.totalAssets) <= 0.01, '775,962.32'],
   ['总盈亏', (v) => Math.abs(money(v) - GOLDEN.totalPnl) <= 0.01, '-8,351.48'],
-  ['总收益率', (v) => v === GOLDEN.totalReturnRate, GOLDEN.totalReturnRate]
+  ['累计收益率', (v) => v === GOLDEN.totalReturnRate, GOLDEN.totalReturnRate]
 ]
 for (const [label, ok, expect] of checks) {
   const v = stats[label]
@@ -331,10 +331,48 @@ for (const [label, ok, expect] of checks) {
   }
   console.log(`  概览「${label}」= ${v} ✓`)
 }
+// 年化收益率卡：终值随「今天」变化，先捕获，稍后与数据库独立 XIRR 计算交叉验证
+const overviewAnnualized = stats['年化收益率']
+if (overviewAnnualized === undefined) {
+  fail(`概览缺少「年化收益率」卡；实际卡片：${JSON.stringify(stats)}`)
+}
+console.log(`  概览「年化收益率」= ${overviewAnnualized}（稍后交叉验证） ✓`)
+
+// 持仓明细「年化收益率」列（盈亏比例之后）：表头存在 + 单元格为百分比或 —
+const annualizedColumn = await evaluate(`(() => {
+  const card = [...document.querySelectorAll('.card')].find((c) => c.querySelector('h2')?.textContent?.trim() === '持仓明细')
+  if (!card) return null
+  const heads = [...card.querySelectorAll('thead th')].map((th) => th.textContent)
+  const idx = heads.indexOf('年化收益率')
+  if (idx === -1 || heads.indexOf('盈亏比例') !== idx - 1) return { missing: true }
+  const cells = [...card.querySelectorAll('tbody tr')].map((tr) => tr.children[idx]?.textContent ?? '')
+  return { cells }
+})()`)
+if (annualizedColumn === null || annualizedColumn.missing) fail('持仓明细缺少「年化收益率」列（应紧跟盈亏比例之后）')
+for (const c of annualizedColumn.cells) {
+  if (!/^-?\d+\.\d{2}%$/.test(c) && c !== '—') {
+    fail(`持仓明细年化收益率列格式异常：${JSON.stringify(c)}`)
+  }
+}
+console.log(`  持仓明细「年化收益率」列：${annualizedColumn.cells.length} 行格式合规 ✓`)
 await shot('overview.png')
 
 // ---- 6. 改流水：修改备注 → 断言列表更新 → 还原 ---------------------------------
 await clickNav('交易流水')
+const txStats = await evaluate(`(() => {
+  const out = {}
+  for (const s of document.querySelectorAll('.stat')) {
+    const label = s.querySelector('.stat-label')?.textContent
+    if (label) out[label] = s.querySelector('.stat-value')?.textContent ?? ''
+  }
+  return out
+})()`)
+if (txStats['累计收益率'] !== GOLDEN.totalReturnRate) {
+  fail(`交易流水页「累计收益率」= ${JSON.stringify(txStats['累计收益率'])}，期望 ${GOLDEN.totalReturnRate}；实际卡片：${JSON.stringify(txStats)}`)
+}
+const txAnnualized = txStats['年化收益率']
+if (txAnnualized === undefined) fail(`交易流水页缺少「年化收益率」卡；实际卡片：${JSON.stringify(txStats)}`)
+console.log(`  交易流水页卡片：累计收益率 ${txStats['累计收益率']}、年化收益率 ${txAnnualized}（稍后交叉验证） ✓`)
 const openedForm = await evaluate(`(() => {
   const row = [...document.querySelectorAll('.table tbody tr')].find((tr) => tr.querySelector('button.btn-small:not(.btn-danger)'))
   if (!row) return false
@@ -438,6 +476,56 @@ console.log(`  导出回读：概览/流水/净值三表，总资产 ${assetRow[
 await shot('settings.png')
 
 // ---- 8. 数据库断言（全新安装的 userData） -------------------------------------
+// 年化收益率交叉验证工具（独立实现，不复用引擎代码）
+const smokeDaysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000)
+
+/** 数据库流水 + 总市值终值 → XIRR；口径与引擎一致（首笔流水 <30 天/净成本 ≤ 0/不收敛 → null） */
+function xirrOfDb(db, terminalValue, today) {
+  const rows = db.prepare('SELECT date, type, amount FROM transactions ORDER BY date').all()
+  if (rows.length === 0) return null
+  if (smokeDaysBetween(rows[0].date, today) < 30) return null
+  const flows = []
+  let netCost = 0
+  for (const t of rows) {
+    if (t.type === '买入' || t.type === '卖出') {
+      flows.push({ date: t.date, amount: -t.amount })
+      netCost += t.amount
+    } else if (t.type === '分红现金') {
+      flows.push({ date: t.date, amount: t.amount })
+    }
+  }
+  if (netCost <= 0) return null
+  const npv = (r) => {
+    let s = 0
+    for (const f of flows) s += f.amount * (1 + r) ** (-smokeDaysBetween(rows[0].date, f.date) / 365)
+    return s + terminalValue * (1 + r) ** (-smokeDaysBetween(rows[0].date, today) / 365)
+  }
+  let lo = -0.9999
+  let flo = npv(lo)
+  let hi = 1
+  let fhi = npv(hi)
+  while (flo * fhi > 0) {
+    hi *= 2
+    if (hi > 1e9) return null
+    fhi = npv(hi)
+  }
+  for (let i = 0; i < 300; i++) {
+    const mid = (lo + hi) / 2
+    const f = npv(mid)
+    if (f === 0 || hi - lo < 1e-9) return mid
+    if (flo * f < 0) {
+      hi = mid
+      fhi = f
+    } else {
+      lo = mid
+      flo = f
+    }
+  }
+  return (lo + hi) / 2
+}
+
+const percentString = (r) => (r === null ? '—' : `${(r * 100).toFixed(2)}%`)
+
 const requireRoot = createRequire(import.meta.url)
 const Database = requireRoot(resolve(ROOT, 'node_modules/better-sqlite3'))
 const db = new Database(join(USER_DATA, 'porti.db'), { readonly: true })
@@ -446,11 +534,21 @@ const counts = {
   transactions: db.prepare('SELECT COUNT(*) c FROM transactions').get().c,
   nav: db.prepare('SELECT COUNT(*) c FROM nav_history').get().c
 }
-db.close()
 if (counts.funds !== GOLDEN.fundCount || counts.transactions !== GOLDEN.transactionCount) {
+  db.close()
   fail(`安装版数据库计数异常：${JSON.stringify(counts)}`)
 }
 console.log(`  安装版数据库：${counts.funds} 只基金 / ${counts.transactions} 笔流水 / ${counts.nav} 条净值 ✓`)
+
+// 年化收益率卡与数据库交叉验证：终值随「今天」变化，用独立 XIRR 实现现场计算期望值
+const smokeToday = new Date()
+const smokeTodayStr = `${smokeToday.getFullYear()}-${String(smokeToday.getMonth() + 1).padStart(2, '0')}-${String(smokeToday.getDate()).padStart(2, '0')}`
+const expectedAnnualized = percentString(xirrOfDb(db, GOLDEN.totalAssets, smokeTodayStr))
+db.close()
+if (overviewAnnualized !== expectedAnnualized || txAnnualized !== expectedAnnualized) {
+  fail(`年化收益率卡（概览 ${overviewAnnualized} / 流水 ${txAnnualized}）与数据库独立计算 ${expectedAnnualized} 不符`)
+}
+console.log(`  年化收益率交叉验证：界面 ${overviewAnnualized} 与数据库独立 XIRR ${expectedAnnualized} 一致 ✓`)
 
 // ---- 9. 收尾 ------------------------------------------------------------------
 app.kill('SIGTERM') // 避免 AppleScript quit 触发「自动化」TCC 弹窗

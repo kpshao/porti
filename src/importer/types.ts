@@ -1,6 +1,7 @@
 // Excel 导入解析器的领域类型
 
 import type {
+  AnnualizedReturnData,
   CategoryTarget,
   Fund,
   FundPosition,
@@ -142,4 +143,5 @@ export interface TxData {
   transactions: TransactionRow[]
   totals: Totals | null
   positions: FundPosition[]
+  annualized: AnnualizedReturnData // 年化收益率：按基金代码映射 + 整体
 }

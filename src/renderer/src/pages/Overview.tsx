@@ -144,9 +144,15 @@ export default function Overview(): React.JSX.Element {
             </div>
           </div>
           <div className="stat">
-            <div className="stat-label">总收益率</div>
+            <div className="stat-label">累计收益率</div>
             <div className={`stat-value ${pnlClass(data.totals.totalReturnRate)}`}>
               {formatPercent(data.totals.totalReturnRate)}
+            </div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">年化收益率</div>
+            <div className={`stat-value ${pnlClass(data.annualized.total)}`}>
+              {formatPercent(data.annualized.total)}
             </div>
           </div>
           <div className="stat">
@@ -171,6 +177,7 @@ export default function Overview(): React.JSX.Element {
                 <th>市值</th>
                 <th>持仓盈亏</th>
                 <th>盈亏比例</th>
+                <th>年化收益率</th>
                 <th>目标金额（元）</th>
               </tr>
             </thead>
@@ -181,6 +188,7 @@ export default function Overview(): React.JSX.Element {
                   const editValue = amountEdits[p.fundCode]
                   const inputValue =
                     editValue !== undefined ? editValue : p.targetAmount === null ? '' : String(p.targetAmount)
+                  const annualized = data.annualized.perFund[p.fundCode]
                   return (
                     <tr key={p.fundCode}>
                       <td>{p.fundCode}</td>
@@ -192,6 +200,7 @@ export default function Overview(): React.JSX.Element {
                       <td>{formatMoney(p.marketValue)}</td>
                       <td className={pnlClass(p.pnl)}>{formatMoney(p.pnl)}</td>
                       <td className={pnlClass(p.pnlRatio)}>{formatPercent(p.pnlRatio)}</td>
+                      <td className={pnlClass(annualized)}>{formatPercent(annualized)}</td>
                       <td>
                         <InlineNumberEdit
                           value={inputValue}

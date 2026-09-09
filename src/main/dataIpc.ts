@@ -4,13 +4,15 @@ import { existsSync } from 'fs'
 import { dirname } from 'path'
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import {
+  computeAnnualizedReturns,
   computeCategoryComparison,
   computePositions,
   computeStatsSeries,
   computeTimeSeries,
+  computeTotalAnnualizedReturn,
   computeTotals
 } from '../engine'
-import type { FundInput, TransactionInput } from '../engine'
+import type { AnnualizedReturnData, FundInput, NavPoint, Transaction, TransactionInput } from '../engine'
 import { reconcileAgainstExcel } from '../importer/reconcile'
 import { parseExcelFile } from '../importer/parse'
 import { importToDb } from '../importer/write'
@@ -61,12 +63,20 @@ export function registerDataIpc(): void {
 
   ipcMain.handle('tx:data', (): TxData => {
     const db = getDb()
-    if (!hasAnyData(db)) return { funds: [], transactions: [], totals: null, positions: [] }
+    if (!hasAnyData(db)) {
+      return { funds: [], transactions: [], totals: null, positions: [], annualized: emptyAnnualized() }
+    }
     const funds = selectFunds(db)
     const transactions = selectTransactions(db)
     const navPoints = selectNavPoints(db)
     const positions = computePositions(funds, transactions, navPoints)
-    return { funds, transactions, totals: computeTotals(positions, transactions), positions }
+    return {
+      funds,
+      transactions,
+      totals: computeTotals(positions, transactions),
+      positions,
+      annualized: computeAnnualizedData(transactions, navPoints)
+    }
   })
 
   ipcMain.handle('tx:create', (_event, input: TransactionInput): void => {
@@ -105,13 +115,21 @@ export function registerDataIpc(): void {
 
   ipcMain.handle('overview:data', (): OverviewData => {
     const db = getDb()
-    if (!hasAnyData(db)) return { funds: [], positions: [], totals: null, comparison: [] }
+    if (!hasAnyData(db)) {
+      return { funds: [], positions: [], totals: null, comparison: [], annualized: emptyAnnualized() }
+    }
     const funds = selectFunds(db)
     const transactions = selectTransactions(db)
     const navPoints = selectNavPoints(db)
     const positions = computePositions(funds, transactions, navPoints)
     const comparison = computeCategoryComparison(positions, selectCategoryTargets(db))
-    return { funds, positions, totals: computeTotals(positions, transactions), comparison }
+    return {
+      funds,
+      positions,
+      totals: computeTotals(positions, transactions),
+      comparison,
+      annualized: computeAnnualizedData(transactions, navPoints)
+    }
   })
 
   ipcMain.handle('target:update-category', (_event, category: string, targetRatio: number): void => {
@@ -257,9 +275,24 @@ export function registerDataIpc(): void {
   })
 }
 
-/** 本地时区今日 YYYY-MM-DD（导出默认文件名用） */
+/** 本地时区今日 YYYY-MM-DD（导出默认文件名与年化期末估值日用） */
 function todayString(): string {
   const d = new Date()
   const pad = (n: number): string => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** 年化收益率数据组装：单基金映射 + 整体（「今天」显式入参以保证口径可测） */
+function computeAnnualizedData(transactions: Transaction[], navPoints: NavPoint[]): AnnualizedReturnData {
+  const today = todayString()
+  const perFund: Record<string, number | null> = {}
+  for (const [fundCode, value] of computeAnnualizedReturns(transactions, navPoints, today)) {
+    perFund[fundCode] = value
+  }
+  return { perFund, total: computeTotalAnnualizedReturn(transactions, navPoints, today) }
+}
+
+/** 空库时的年化数据（与无数据不渲染统计卡的口径一致） */
+function emptyAnnualized(): AnnualizedReturnData {
+  return { perFund: {}, total: null }
 }

@@ -194,9 +194,19 @@ export default function Transactions(): React.JSX.Element {
             </div>
           </div>
           <div className="stat">
-            <div className="stat-label">总收益率</div>
+            <div className="stat-label">累计收益率</div>
             <div className={`stat-value ${(txData.totals.totalReturnRate ?? 0) >= 0 ? 'positive' : 'negative'}`}>
               {formatPercent(txData.totals.totalReturnRate)}
+            </div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">年化收益率</div>
+            <div
+              className={`stat-value ${
+                txData.annualized.total === null ? '' : txData.annualized.total >= 0 ? 'positive' : 'negative'
+              }`}
+            >
+              {formatPercent(txData.annualized.total)}
             </div>
           </div>
           <div className="stat">

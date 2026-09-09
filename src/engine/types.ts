@@ -104,3 +104,15 @@ export interface StatsPoint extends TimePoint {
   totalReturn: number // 累计收益 = 总市值 − 净投入成本 + 落袋收益
   weeklyReturn: WeeklyReturn | null // 无 ≥7 天前基准则为 null
 }
+
+/** XIRR 现金流：金额为归一化符号（流出为负、流入为正） */
+export interface XirrCashFlow {
+  date: string
+  amount: number
+}
+
+/** 年化收益率数据：按基金代码映射 + 整体（概览/流水页契约共用） */
+export interface AnnualizedReturnData {
+  perFund: Record<string, number | null>
+  total: number | null
+}

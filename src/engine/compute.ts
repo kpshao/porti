@@ -8,7 +8,8 @@ import type {
   CategoryTarget,
   TimePoint,
   StatsPoint,
-  WeeklyReturn
+  WeeklyReturn,
+  XirrCashFlow
 } from './types'
 
 const NEVER = '9999-12-31'
@@ -197,4 +198,145 @@ export function computeStatsSeries(
       weeklyReturn: weekly[i]
     }
   })
+}
+
+/** 资金加权年化收益率（XIRR）：求 r 使全部现金流与期末估值按 (1+r)^(−天数/365)
+ * 折现后净现值为 0。cashFlows 金额为归一化符号（流出为负、流入为正）；
+ * terminalValue 为「今天」的期末估值（流入）。不收敛/无解/退化返回 null。 */
+export function xirr(cashFlows: XirrCashFlow[], terminalValue: number, today: string): number | null {
+  if (cashFlows.length === 0) return null
+  // 金额全为 0：任意 r 均满足，视为无解
+  if (cashFlows.every((f) => f.amount === 0) && terminalValue === 0) return null
+  let firstDate = cashFlows[0].date
+  for (const f of cashFlows) if (f.date < firstDate) firstDate = f.date
+  if (daysBetween(firstDate, today) < 0) return null
+
+  const npv = (r: number): number => {
+    let sum = 0
+    for (const f of cashFlows) {
+      sum += f.amount * Math.pow(1 + r, -daysBetween(firstDate, f.date) / 365)
+    }
+    return sum + terminalValue * Math.pow(1 + r, -daysBetween(firstDate, today) / 365)
+  }
+
+  // 符号变化扫描：起点取首个 NPV 有限的负利率（老数据在 r→−1 附近折现会溢出为无穷），
+  // 上界翻倍扩展；全程同号说明无解
+  const CANDIDATES = [-0.9999, -0.999, -0.99, -0.9, -0.5, -0.1]
+  const startLo = CANDIDATES.find((r) => Number.isFinite(npv(r)))
+  if (startLo === undefined) return null
+  let lo = startLo
+  let flo = npv(lo)
+  if (flo === 0) return lo // 根恰落在扫描起点
+  let hi = 1
+  let fhi = npv(hi)
+  while (fhi * flo > 0) {
+    hi *= 2
+    if (hi > 1e9) return null
+    fhi = npv(hi)
+  }
+  // 二分求根
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2
+    const fmid = npv(mid)
+    if (fmid === 0 || hi - lo < 1e-9) return mid
+    if (flo * fmid < 0) {
+      hi = mid
+      fhi = fmid
+    } else {
+      lo = mid
+      flo = fmid
+    }
+  }
+  return (lo + hi) / 2
+}
+
+/** 单基金年化收益率映射（XIRR）：键为基金代码，值为年化收益率；
+ * 首笔现金流日距今天不足 30 天、无净值记录、净成本 ≤ 0 或求根失败均为 null。 */
+export function computeAnnualizedReturns(
+  transactions: Transaction[],
+  navPoints: NavPoint[],
+  today: string
+): Map<string, number | null> {
+  const byFund = new Map<string, Transaction[]>()
+  for (const t of transactions) {
+    const list = byFund.get(t.fundCode)
+    if (list === undefined) byFund.set(t.fundCode, [t])
+    else list.push(t)
+  }
+  const result = new Map<string, number | null>()
+  for (const [fundCode, txs] of byFund) {
+    result.set(fundCode, annualizedForFund(fundCode, txs, navPoints, today))
+  }
+  return result
+}
+
+/** 流水 → 现金流与净成本增量：买入/卖出为现金流（库内约定卖出存负值，取反后流出为负、
+ * 流入为正；金额直接累加即 买入 − 赎回）；分红现金为流入；分红再投入无现金流。 */
+function cashFlowOf(t: Transaction): { flow: XirrCashFlow | null; netCostDelta: number } {
+  if (t.type === '买入' || t.type === '卖出') {
+    return { flow: { date: t.date, amount: -t.amount }, netCostDelta: t.amount }
+  }
+  if (t.type === '分红现金') {
+    return { flow: { date: t.date, amount: t.amount }, netCostDelta: 0 }
+  }
+  return { flow: null, netCostDelta: 0 }
+}
+
+/** 单基金年化：现金流（买入流出/卖出流入/分红现金流入）+ 期末估值 = 当前份额 × 最新净值 */
+function annualizedForFund(
+  fundCode: string,
+  txs: Transaction[],
+  navPoints: NavPoint[],
+  today: string
+): number | null {
+  const flows: XirrCashFlow[] = []
+  let netCost = 0
+  let shares = 0
+  for (const t of txs) {
+    const { flow, netCostDelta } = cashFlowOf(t)
+    if (flow !== null) flows.push(flow)
+    netCost += netCostDelta
+    shares += t.shares ?? 0
+  }
+  if (flows.length === 0 || netCost <= 0) return null
+  const firstFlowDate = flows.reduce((min, f) => (f.date < min ? f.date : min), flows[0].date)
+  if (daysBetween(firstFlowDate, today) < 30) return null
+  let terminal = 0
+  if (shares > 0) {
+    const nav = latestNavAsOf(navPoints, fundCode, NEVER)
+    if (nav === null) return null
+    terminal = shares * nav.nav
+  }
+  return xirr(flows, terminal, today)
+}
+
+/** 整体年化收益率（XIRR）：全部历史流水（含已清仓基金的卖出回款与分红现金）为现金流，
+ * 期末估值 = 全部持仓市值之和（无净值记录的持仓不计入）；
+ * 首笔流水日距今天不足 30 天、净成本 ≤ 0 或求根失败返回 null。 */
+export function computeTotalAnnualizedReturn(
+  transactions: Transaction[],
+  navPoints: NavPoint[],
+  today: string
+): number | null {
+  if (transactions.length === 0) return null
+  const firstTxDate = transactions.reduce((min, t) => (t.date < min ? t.date : min), transactions[0].date)
+  if (daysBetween(firstTxDate, today) < 30) return null
+  const flows: XirrCashFlow[] = []
+  let netCost = 0
+  const sharesByFund = new Map<string, number>()
+  for (const t of transactions) {
+    const { flow, netCostDelta } = cashFlowOf(t)
+    if (flow !== null) flows.push(flow)
+    netCost += netCostDelta
+    sharesByFund.set(t.fundCode, (sharesByFund.get(t.fundCode) ?? 0) + (t.shares ?? 0))
+  }
+  if (netCost <= 0) return null
+  let terminal = 0
+  for (const [fundCode, shares] of sharesByFund) {
+    if (shares <= 0) continue
+    const nav = latestNavAsOf(navPoints, fundCode, NEVER)
+    if (nav === null) continue
+    terminal += shares * nav.nav
+  }
+  return xirr(flows, terminal, today)
 }

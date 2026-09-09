@@ -6,7 +6,10 @@ import {
   computeCategoryComparison,
   computeTimeSeries,
   computeWeeklyReturn,
-  computeStatsSeries
+  computeStatsSeries,
+  computeAnnualizedReturns,
+  computeTotalAnnualizedReturn,
+  xirr
 } from './compute'
 
 // ---------- Golden fixtures：取自 投资跟踪.xlsx 持仓概览的真实数据 ----------
@@ -343,5 +346,174 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
     const last = series[series.length - 1]
     expect(last.totalMarketValue).toBeCloseTo(totals.totalAssets, 6)
     expect(last.totalReturn).toBeCloseTo(totals.totalReturn, 6)
+  })
+})
+
+describe('年化收益率（XIRR 核心求根，手算黄金值）', () => {
+  it('单笔买入 365 天：r = 期末估值/买入金额 − 1', () => {
+    expect(xirr([{ date: '2026-01-01', amount: -100 }], 110, '2027-01-01')).toBeCloseTo(0.1, 9)
+  })
+
+  it('多笔定投（第二笔与期末同日）：r = 10%', () => {
+    const flows = [
+      { date: '2026-01-01', amount: -100 },
+      { date: '2027-01-01', amount: -100 }
+    ]
+    expect(xirr(flows, 210, '2027-01-01')).toBeCloseTo(0.1, 9)
+  })
+
+  it('含卖出回款与分红现金（流入）：r = 15%', () => {
+    const flows = [
+      { date: '2026-01-01', amount: -1000 },
+      { date: '2027-01-01', amount: 600 }
+    ]
+    expect(xirr(flows, 550, '2027-01-01')).toBeCloseTo(0.15, 9)
+  })
+
+  it('已清仓现金流 + 零期末估值：r = 20%', () => {
+    const flows = [
+      { date: '2026-01-01', amount: -1000 },
+      { date: '2027-01-01', amount: 1200 }
+    ]
+    expect(xirr(flows, 0, '2027-01-01')).toBeCloseTo(0.2, 9)
+  })
+
+  it('不收敛（只有流出、零终值）返回 null', () => {
+    const flows = [
+      { date: '2026-01-01', amount: -100 },
+      { date: '2026-02-01', amount: -100 }
+    ]
+    expect(xirr(flows, 0, '2027-01-01')).toBeNull()
+  })
+
+  it('不收敛（只有流入）返回 null', () => {
+    expect(xirr([{ date: '2026-01-01', amount: 100 }], 100, '2027-01-01')).toBeNull()
+  })
+
+  it('空现金流返回 null', () => {
+    expect(xirr([], 100, '2027-01-01')).toBeNull()
+  })
+
+  it('期末估值日早于首笔现金流返回 null', () => {
+    expect(xirr([{ date: '2027-01-01', amount: -100 }], 110, '2026-01-01')).toBeNull()
+  })
+})
+
+describe('单基金年化映射（XIRR，手算黄金值）', () => {
+  it('golden fixtures：5 只基金年化与手算黄金值一致（today = 净值日 2026-08-11）', () => {
+    const map = computeAnnualizedReturns(goldenTransactions, goldenNavPoints, '2026-08-11')
+    expect(map.size).toBe(5)
+    expect(map.get('110017')).toBeCloseTo(0.0193714569, 8)
+    expect(map.get('002009')).toBeCloseTo(-0.0317483574, 8)
+    expect(map.get('512890')).toBeCloseTo(-0.0261994222, 8)
+    expect(map.get('000217')).toBeCloseTo(-0.2104439255, 8)
+    expect(map.get('007824')).toBeCloseTo(0.0110100987, 8)
+  })
+
+  it('首笔现金流距今天 29 天 → null；恰好 30 天 → 0%（期末估值 = 买入额）', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2026-01-30', nav: 1, source: 'import' }]
+    expect(computeAnnualizedReturns(txs, navs, '2026-01-30').get('A')).toBeNull()
+    expect(computeAnnualizedReturns(txs, navs, '2026-01-31').get('A')).toBeCloseTo(0, 9)
+  })
+
+  it('分红再投入只加份额、不产生现金流（期末估值按再投入后的份额）', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
+      { date: '2026-04-01', type: '分红再投入', fundCode: 'A', amount: 0, shares: 20, nav: 1.1, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2027-01-01', nav: 1.1, source: 'import' }]
+    expect(computeAnnualizedReturns(txs, navs, '2027-01-01').get('A')).toBeCloseTo(0.32, 9)
+  })
+
+  it('含卖出与分红现金：r = 15%', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null },
+      { date: '2027-01-01', type: '卖出', fundCode: 'A', amount: -550, shares: -500, nav: 1.1, fee: 0, note: null },
+      { date: '2027-01-01', type: '分红现金', fundCode: 'A', amount: 50, shares: null, nav: null, fee: null, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2027-01-01', nav: 1.1, source: 'import' }]
+    expect(computeAnnualizedReturns(txs, navs, '2027-01-01').get('A')).toBeCloseTo(0.15, 9)
+  })
+
+  it('无净值记录 → null（市值不计入期末估值）', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null }
+    ]
+    expect(computeAnnualizedReturns(txs, [], '2027-01-01').get('A')).toBeNull()
+  })
+
+  it('净成本为负 → null（异常返回空）', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null },
+      { date: '2026-07-01', type: '卖出', fundCode: 'A', amount: -1200, shares: -500, nav: 2.4, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2027-01-01', nav: 1, source: 'import' }]
+    expect(computeAnnualizedReturns(txs, navs, '2027-01-01').get('A')).toBeNull()
+  })
+
+  it('已清仓、净成本为正：全部现金流 + 零期末估值 → r = −50%', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
+      { date: '2027-01-01', type: '卖出', fundCode: 'A', amount: -50, shares: -100, nav: 0.5, fee: 0, note: null }
+    ]
+    expect(computeAnnualizedReturns(txs, [], '2027-01-01').get('A')).toBeCloseTo(-0.5, 9)
+  })
+})
+
+describe('整体年化（XIRR，手算黄金值）', () => {
+  it('golden fixtures 整体：全部买入现金流 + 期末总市值（today = 2026-08-11）', () => {
+    expect(computeTotalAnnualizedReturn(goldenTransactions, goldenNavPoints, '2026-08-11')).toBeCloseTo(
+      -0.0625911619,
+      8
+    )
+  })
+
+  it('已清仓基金的卖出回款计入整体：r = 0%；单基金 A 净成本为负 → 空，B → −10%', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null },
+      { date: '2027-01-01', type: '卖出', fundCode: 'A', amount: -1200, shares: -1000, nav: 1.2, fee: 0, note: null },
+      { date: '2026-01-01', type: '买入', fundCode: 'B', amount: 2000, shares: 2000, nav: 1, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'B', date: '2027-01-01', nav: 0.9, source: 'import' }]
+    expect(computeTotalAnnualizedReturn(txs, navs, '2027-01-01')).toBeCloseTo(0, 9)
+    const map = computeAnnualizedReturns(txs, navs, '2027-01-01')
+    expect(map.get('A')).toBeNull()
+    expect(map.get('B')).toBeCloseTo(-0.1, 9)
+  })
+
+  it('无净值记录的持仓市值不计入期末估值：r = −45%', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
+      { date: '2026-01-01', type: '买入', fundCode: 'B', amount: 100, shares: 100, nav: 1, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2027-01-01', nav: 1.1, source: 'import' }]
+    expect(computeTotalAnnualizedReturn(txs, navs, '2027-01-01')).toBeCloseTo(-0.45, 9)
+  })
+
+  it('首笔流水（任意类型）距今天 29 天 → null；恰好 30 天 → 计算；单基金按首笔现金流日仍为空', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '分红再投入', fundCode: 'A', amount: 0, shares: 20, nav: 1, fee: 0, note: null },
+      { date: '2026-01-05', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2026-01-30', nav: 1, source: 'import' }]
+    expect(computeTotalAnnualizedReturn(txs, navs, '2026-01-30')).toBeNull() // 首笔流水 01-01 → 29 天
+    expect(computeTotalAnnualizedReturn(txs, navs, '2026-01-31')).toBeCloseTo(11.9295341392, 6) // 恰好 30 天
+    expect(computeAnnualizedReturns(txs, navs, '2026-01-31').get('A')).toBeNull() // 首笔现金流 01-05 → 26 天
+  })
+
+  it('整体净成本为负 → null', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null },
+      { date: '2026-07-01', type: '卖出', fundCode: 'A', amount: -1200, shares: -500, nav: 2.4, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2027-01-01', nav: 1, source: 'import' }]
+    expect(computeTotalAnnualizedReturn(txs, navs, '2027-01-01')).toBeNull()
+  })
+
+  it('无流水 → null', () => {
+    expect(computeTotalAnnualizedReturn([], [], '2027-01-01')).toBeNull()
   })
 })
