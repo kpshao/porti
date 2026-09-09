@@ -55,7 +55,8 @@ const GOLDEN = {
 // 备份并移除首次安装前的旧数据，保证「全新安装首次导入」起点。
 // 注意 macOS 文件系统大小写不敏感：「Porti」与「porti」是同一目录，
 // 开发版与安装版共享本目录，因此必须先移除旧库，否则会重复导入导致断言失真。
-const backupSuffix = `.bak-${new Date().toISOString().slice(0, 10)}`
+// 备份后缀带小时：同日多次跑冒烟（如手动模式失败重跑）不会覆盖上一轮的备份
+const backupSuffix = `.bak-${new Date().toISOString().slice(0, 13)}`
 for (const name of ['porti.db', 'porti.db-wal', 'porti.db-shm', 'settings.json']) {
   const f = join(USER_DATA, name)
   if (existsSync(f)) {
@@ -270,7 +271,7 @@ const previewOk = await waitFor(async () => {
     await sleep(2000)
   }
   return false
-}, 25000)
+}, MANUAL ? DIALOG_TIMEOUT : 25000)
 // 一轮未成：整段重试一次（对话框可能尚未就绪或首轮按键被吞）
 if (!previewOk && !MANUAL) {
   console.log(`  → 首轮对话框自动操作未生效，重试。窗口状态：${dialogState()}`)
