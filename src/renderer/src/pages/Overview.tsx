@@ -138,7 +138,7 @@ export default function Overview(): React.JSX.Element {
             <div className="stat-value">{formatMoney(data.totals.totalAssets)}</div>
           </div>
           <div className="stat">
-            <div className="stat-label">总盈亏</div>
+            <div className="stat-label">持仓盈亏</div>
             <div className={`stat-value ${pnlClass(data.totals.totalPnl)}`}>
               {formatMoney(data.totals.totalPnl)}
             </div>
@@ -172,7 +172,7 @@ export default function Overview(): React.JSX.Element {
                 <th>名称</th>
                 <th>大类</th>
                 <th>份额</th>
-                <th>净投入成本</th>
+                <th>持仓成本</th>
                 <th>最新净值</th>
                 <th>市值</th>
                 <th>持仓盈亏</th>
@@ -195,7 +195,7 @@ export default function Overview(): React.JSX.Element {
                       <td>{p.name}</td>
                       <td>{p.category}</td>
                       <td>{formatShares(p.shares)}</td>
-                      <td>{formatMoney(p.netCost)}</td>
+                      <td>{formatMoney(p.costBasis)}</td>
                       <td>{formatNav(p.latestNav)}</td>
                       <td>{formatMoney(p.marketValue)}</td>
                       <td className={pnlClass(p.pnl)}>{formatMoney(p.pnl)}</td>

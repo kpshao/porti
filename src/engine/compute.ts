@@ -38,12 +38,65 @@ export function latestNavAsOf(
   return best
 }
 
+/** 成本基础状态：移动加权平均成本法下某基金的份额/剩余持仓成本/已实现收益/分红现金累计。 */
+export interface CostBasisState {
+  shares: number // 当前份额（直接累加，卖出存负值——与 sharesAsOf 同规则）
+  costBasis: number // 剩余持仓成本基础（移动加权平均，含手续费）
+  realizedGain: number // Σ卖出已实现收益 = 卖出回款 − 消耗成本
+  cashDividends: number // Σ分红现金
+}
+
+const ZERO_BASIS: CostBasisState = { shares: 0, costBasis: 0, realizedGain: 0, cashDividends: 0 }
+
+/** 单笔流水推进成本基础（纯函数）。规则：
+ *  买入：shares += s，costBasis += amount（amount 已含手续费）
+ *  卖出：sold = −shares，proceeds = −amount；sharesBefore ≤ 0 时消耗成本为 0（超卖防护）；
+ *        否则 costConsumed = min(costBasis × sold / sharesBefore, costBasis)（部分超卖钳制）；
+ *        realizedGain += proceeds − costConsumed；costBasis −= costConsumed；
+ *        shares 归零（含超卖为负）时 costBasis 置 0（清仓兜底，消除浮点残留）
+ *  分红再投入：shares += s，costBasis 不变（0 成本份额拉低均价，其市值在后续卖出时成为已实现收益）
+ *  分红现金：cashDividends += amount，不动 shares/costBasis */
+export function applyCostBasis(state: CostBasisState, t: Transaction): CostBasisState {
+  if (t.type === '买入') {
+    return { ...state, shares: state.shares + (t.shares ?? 0), costBasis: state.costBasis + t.amount }
+  }
+  if (t.type === '卖出') {
+    const sold = -(t.shares ?? 0)
+    const proceeds = -t.amount
+    let costConsumed = 0
+    if (state.shares > 0) costConsumed = Math.min((state.costBasis * sold) / state.shares, state.costBasis)
+    const shares = state.shares - sold
+    return {
+      shares,
+      costBasis: shares <= 0 ? 0 : state.costBasis - costConsumed,
+      realizedGain: state.realizedGain + proceeds - costConsumed,
+      cashDividends: state.cashDividends
+    }
+  }
+  if (t.type === '分红再投入') {
+    return { ...state, shares: state.shares + (t.shares ?? 0) }
+  }
+  return { ...state, cashDividends: state.cashDividends + t.amount }
+}
+
+/** 全时段成本基础映射：按日期升序稳定排序（同日保持输入顺序——库内查询 ORDER BY date, id
+ *  与流水分页返回顺序同规则）；返回 Map<fundCode, CostBasisState>。 */
+export function costBasisStates(transactions: Transaction[]): Map<string, CostBasisState> {
+  const sorted = [...transactions].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  const states = new Map<string, CostBasisState>()
+  for (const t of sorted) {
+    states.set(t.fundCode, applyCostBasis(states.get(t.fundCode) ?? ZERO_BASIS, t))
+  }
+  return states
+}
+
 /** 每只基金的持仓明细。口径与 Excel 持仓概览逐项一致。 */
 export function computePositions(
   funds: Fund[],
   transactions: Transaction[],
   navPoints: NavPoint[]
 ): FundPosition[] {
+  const basis = costBasisStates(transactions)
   return funds.map((fund) => {
     let invested = 0
     let redeemed = 0
@@ -55,10 +108,11 @@ export function computePositions(
       shares += t.shares ?? 0
     }
     const netCost = invested - redeemed
+    const costBasis = basis.get(fund.code)?.costBasis ?? 0
     const nav = latestNavAsOf(navPoints, fund.code, NEVER)
     const marketValue = nav === null ? null : shares * nav.nav
-    const pnl = marketValue === null ? null : marketValue - netCost
-    const pnlRatio = pnl === null || netCost === 0 ? null : pnl / netCost
+    const pnl = marketValue === null ? null : marketValue - costBasis
+    const pnlRatio = pnl === null || costBasis <= 0 ? null : pnl / costBasis
     return {
       fundCode: fund.code,
       name: fund.name,
@@ -68,6 +122,7 @@ export function computePositions(
       invested,
       redeemed,
       netCost,
+      costBasis,
       shares,
       latestNav: nav === null ? null : nav.nav,
       latestNavDate: nav === null ? null : nav.date,
@@ -78,26 +133,31 @@ export function computePositions(
   })
 }
 
-/** 汇总：总市值/总盈亏/总收益率/落袋收益/总收益。 */
+/** 汇总：总市值/持仓盈亏（浮动）/累计收益率/落袋收益/总收益。
+ *  落袋收益按流水 fundCode 统计（含已删除基金的流水，与现状逐笔遍历一致）；
+ *  总收益 = 持仓盈亏 + 落袋收益，数值与简单成本法（市值 − 净投入 + 分红）恒等。 */
 export function computeTotals(positions: FundPosition[], transactions: Transaction[]): Totals {
   let realizedIncome = 0
-  for (const t of transactions) {
-    if (t.type === '分红现金') realizedIncome += t.amount
+  for (const st of costBasisStates(transactions).values()) {
+    realizedIncome += st.realizedGain + st.cashDividends
   }
   let totalNetCost = 0
   let totalAssets = 0
+  let totalCostBasis = 0
   for (const p of positions) {
     totalNetCost += p.netCost
+    totalCostBasis += p.costBasis
     if (p.marketValue !== null) totalAssets += p.marketValue
   }
-  const totalPnl = totalAssets - totalNetCost
+  const totalPnl = totalAssets - totalCostBasis
+  const totalReturn = totalPnl + realizedIncome
   return {
     totalNetCost,
     totalAssets,
     totalPnl,
-    totalReturnRate: totalNetCost === 0 ? null : totalPnl / totalNetCost,
+    totalReturnRate: totalNetCost <= 0 ? null : totalReturn / totalNetCost,
     realizedIncome,
-    totalReturn: totalPnl + realizedIncome
+    totalReturn
   }
 }
 
@@ -170,7 +230,7 @@ function weeklyReturnRows(series: TimePoint[]): (WeeklyReturn | null)[] {
   })
 }
 
-/** 收益统计时间序列：每个有净值记录的日期一个点；净投入/落袋收益按日期截断累计。 */
+/** 收益统计时间序列：每个有净值记录的日期一个点；持仓成本/落袋收益按日期截断累计。 */
 export function computeStatsSeries(
   funds: Fund[],
   transactions: Transaction[],
@@ -179,22 +239,25 @@ export function computeStatsSeries(
   const series = computeTimeSeries(funds, transactions, navPoints)
   const weekly = weeklyReturnRows(series)
   const sorted = [...transactions].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  const states = new Map<string, CostBasisState>()
   let idx = 0
-  let netCost = 0
-  let realized = 0
   return series.map((p, i) => {
     while (idx < sorted.length && sorted[idx].date <= p.date) {
       const t = sorted[idx]
-      // 库内约定：卖出金额存负值，直接累加即 买入 − 赎回；分红再投入金额为 0，成本不变
-      if (t.type === '买入' || t.type === '卖出') netCost += t.amount
-      else if (t.type === '分红现金') realized += t.amount
+      states.set(t.fundCode, applyCostBasis(states.get(t.fundCode) ?? ZERO_BASIS, t))
       idx++
+    }
+    let costBasis = 0
+    let realized = 0
+    for (const st of states.values()) {
+      costBasis += st.costBasis
+      realized += st.realizedGain + st.cashDividends
     }
     return {
       ...p,
-      netCost,
+      costBasis,
       realizedIncome: realized,
-      totalReturn: p.totalMarketValue - netCost + realized,
+      totalReturn: p.totalMarketValue - costBasis + realized,
       weeklyReturn: weekly[i]
     }
   })

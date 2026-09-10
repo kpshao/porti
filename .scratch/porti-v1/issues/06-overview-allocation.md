@@ -17,5 +17,6 @@
 - **计算层复用**：卡片/持仓明细/大类对比全部来自 #02 计算引擎（computeTotals/computePositions/computeCategoryComparison），与 Excel 一致性由 M1 对账（e2e.test.ts）保证；本 ticket 新增 `targetService`（目标编辑，内存库 8 用例 TDD）与概览 IPC（overview:data / target:update-category / fund:update-target）。
 - **默认目标种子**：ticket 默认值 25/45/20/5/5 在新库初始化时写入 category_targets（seedDefaultCategoryTargets，INSERT OR IGNORE）——Excel 导入用导入值覆盖、已导入库不受影响，直接新建基金的非导入场景也有配置基准。
 - **总收益率口径矛盾（已知遗留，非本 ticket 改动）**：spec 核心计算规则写「总收益率 = 总收益 / 净投入成本」（总收益含落袋收益），但 M1 对账验收数字（-1.06% = 持仓盈亏/净投入成本）与 Excel 口径一致；#02 引擎已按 Excel 口径锁定。本 ticket 沿用引擎口径（与 Excel、交易流水页一致），spec 文本矛盾建议在 spec 修订时澄清。
+- **口径矛盾已解决（2026-09-09）**：strict-cost-basis 改造后引擎按 spec 口径实现「总收益率 = 总收益 / 净投入成本」（净投入 ≤ 0 时 null），本注释遗留不再存在；M1 对账数据无卖出/分红现金，对账数值不变。
 - **目标编辑 UX**：行内数字编辑（失焦/回车提交），比例按百分比录入；非法数字本地回退，范围校验统一由服务层把关（中文错误回显）；偏离正数红/↑超配、负数绿/↓低配。
 - **code-review 修正**：行内编辑框抽 InlineNumberEdit 组件；盈亏着色抽 pnlClass（null 无净值不着色）；commit 校验瘦身（范围校验只留服务层一处）；补默认目标种子（Spec 轴 a1 发现）。

@@ -99,8 +99,9 @@ describe('buildExportData — 概览表', () => {
 
     // 构建时已按显示位数舍入：单元格值即为软件内显示值（金额 2 位）
     expect(summary[0]).toEqual(['总资产', num(26589.49, '0.00')])
-    expect(summary[1]).toEqual(['总盈亏', num(3189.49, '0.00')])
-    expect(summary[2]).toEqual(['总收益率(%)', num(13.63, '0.00')])
+    expect(summary[1]).toEqual(['持仓盈亏', num(3189.49, '0.00')])
+    // 总收益率 = 总收益/净投入成本 = 3249.49/23400（含分红现金 60 进分子）
+    expect(summary[2]).toEqual(['总收益率(%)', num(13.89, '0.00')])
     expect(summary[3]).toEqual(['落袋收益', num(60, '0.00')])
     expect(summary[4]).toEqual(['总收益', num(3249.49, '0.00')])
     expect(summary[5]).toEqual(['净投入成本', num(23400, '0.00')])
@@ -112,7 +113,7 @@ describe('buildExportData — 概览表', () => {
 
     expect(ov.rows[8]).toEqual(['持仓明细'])
     expect(ov.rows[9]).toEqual([
-      '基金代码', '基金名称', '大类', '份额', '净投入成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)', '目标金额'
+      '基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)', '目标金额'
     ])
 
     const [a, b] = ov.rows.slice(10, 12)
@@ -145,7 +146,7 @@ describe('buildExportData — 空库', () => {
     expect(ov.rows[1]).toEqual(['总资产', num(0, '0.00')])
     expect(ov.rows[3]).toEqual(['总收益率(%)', ''])
     expect(ov.rows[9]).toEqual([
-      '基金代码', '基金名称', '大类', '份额', '净投入成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)', '目标金额'
+      '基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)', '目标金额'
     ])
     expect(sheetByName(sheets, '流水').rows).toHaveLength(1)
     expect(sheetByName(sheets, '净值').rows).toHaveLength(1)

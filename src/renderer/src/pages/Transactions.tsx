@@ -188,7 +188,7 @@ export default function Transactions(): React.JSX.Element {
             <div className="stat-value">{formatMoney(txData.totals.totalAssets)}</div>
           </div>
           <div className="stat">
-            <div className="stat-label">总盈亏</div>
+            <div className="stat-label">持仓盈亏</div>
             <div className={`stat-value ${txData.totals.totalPnl >= 0 ? 'positive' : 'negative'}`}>
               {formatMoney(txData.totals.totalPnl)}
             </div>

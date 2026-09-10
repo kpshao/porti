@@ -68,14 +68,14 @@ function overviewSheet(
     rows: [
       ['汇总'],
       ['总资产', money(totals.totalAssets)],
-      ['总盈亏', money(totals.totalPnl)],
+      ['持仓盈亏', money(totals.totalPnl)],
       ['总收益率(%)', percent(totals.totalReturnRate)],
       ['落袋收益', money(totals.realizedIncome)],
       ['总收益', money(totals.totalReturn)],
       ['净投入成本', money(totals.totalNetCost)],
       [],
       ['持仓明细'],
-      ['基金代码', '基金名称', '大类', '份额', '净投入成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)', '目标金额'],
+      ['基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)', '目标金额'],
       // 与概览页持仓明细同一口径：只列仍有份额的持仓
       ...positions
         .filter((p) => p.shares !== 0)
@@ -84,7 +84,7 @@ function overviewSheet(
           p.name,
           p.category,
           shares2(p.shares),
-          money(p.netCost),
+          money(p.costBasis),
           nav4(p.latestNav),
           money(p.marketValue),
           money(p.pnl),

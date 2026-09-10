@@ -156,10 +156,13 @@ describe('新建流水后计算引擎输出与手算一致（ticket 验收）', 
     const totals = computeTotals(positions, selectTransactions(db))
 
     // 手算：净投入 1000−400=600、份额 60、净值 11.5 → 市值 690、持仓盈亏 90、落袋收益 60
+    // 严格成本法：卖出 40/100 份 @11 恰为均价 10 的消耗成本 400，已实现收益 0，落袋仍 = 分红 60
     expect(positions[0].netCost).toBe(600)
+    expect(positions[0].costBasis).toBe(600)
     expect(positions[0].shares).toBe(60)
     expect(positions[0].pnl).toBeCloseTo(90, 6)
     expect(totals.realizedIncome).toBe(60)
     expect(totals.totalReturn).toBeCloseTo(150, 6)
+    expect(totals.totalReturnRate).toBeCloseTo(150 / 600, 9)
   })
 })

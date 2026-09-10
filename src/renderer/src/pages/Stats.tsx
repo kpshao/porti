@@ -203,7 +203,7 @@ export default function Stats(): React.JSX.Element {
             `${p.name} ${p.fundCode}`,
             `持仓盈亏：${formatMoney(p.pnl)}（${formatPercent(p.pnlRatio)}）`,
             `市值：${formatMoney(p.marketValue)}`,
-            `净投入成本：${formatMoney(p.netCost)}`
+            `持仓成本：${formatMoney(p.costBasis)}`
           ].join('<br/>')
         }
       },
@@ -256,7 +256,7 @@ export default function Stats(): React.JSX.Element {
           <div className="card">
             <h2>累计收益走势</h2>
             <div ref={returnRef} className="chart chart-lg" />
-            <p className="muted">累计收益 = 总市值 − 净投入成本 + 落袋收益（分红现金），与概览页总收益同口径。</p>
+            <p className="muted">累计收益 = 总市值 − 持仓成本 + 落袋收益（分红现金 + 卖出已实现收益），与概览页总收益同口径。</p>
           </div>
 
           <div className="card">

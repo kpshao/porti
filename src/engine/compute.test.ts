@@ -9,6 +9,8 @@ import {
   computeStatsSeries,
   computeAnnualizedReturns,
   computeTotalAnnualizedReturn,
+  applyCostBasis,
+  costBasisStates,
   xirr
 } from './compute'
 
@@ -69,6 +71,7 @@ describe('computePositions — Excel golden values（持仓概览 5 只基金逐
     const p = byCode.get('110017')!
     expect(p.invested).toBeCloseTo(70000, 2)
     expect(p.netCost).toBeCloseTo(70000, 2)
+    expect(p.costBasis).toBeCloseTo(70000, 2) // 无卖出：持仓成本 = 累计买入
     expect(p.shares).toBeCloseTo(50067.32, 6)
     expect(p.marketValue).toBeCloseTo(70594.9212, 2)
     expect(p.pnl).toBeCloseTo(594.9212, 2)
@@ -79,6 +82,7 @@ describe('computePositions — Excel golden values（持仓概览 5 只基金逐
     const p = byCode.get('002009')!
     expect(p.invested).toBeCloseTo(60000, 2)
     expect(p.netCost).toBeCloseTo(60000, 2)
+    expect(p.costBasis).toBeCloseTo(60000, 2) // 分红再投入 0 成本份额：持仓成本不变
     expect(p.shares).toBeCloseTo(38750.05, 6)
     expect(p.marketValue).toBeCloseTo(59427.07668, 2)
     expect(p.pnl).toBeCloseTo(-572.92332, 2)
@@ -87,6 +91,7 @@ describe('computePositions — Excel golden values（持仓概览 5 只基金逐
   it('512890 华泰柏瑞红利低波ETF（14 笔买入）', () => {
     const p = byCode.get('512890')!
     expect(p.invested).toBeCloseTo(48344.2, 2)
+    expect(p.costBasis).toBeCloseTo(48344.2, 2)
     expect(p.shares).toBeCloseTo(40700, 6)
     expect(p.marketValue).toBeCloseTo(47863.2, 2)
     expect(p.pnl).toBeCloseTo(-481, 2)
@@ -95,6 +100,7 @@ describe('computePositions — Excel golden values（持仓概览 5 只基金逐
   it('000217 华安黄金ETF联接C', () => {
     const p = byCode.get('000217')!
     expect(p.netCost).toBeCloseTo(59050, 2)
+    expect(p.costBasis).toBeCloseTo(59050, 2)
     expect(p.shares).toBeCloseTo(16032.86, 6)
     expect(p.marketValue).toBeCloseTo(53033.494308, 2)
     expect(p.pnl).toBeCloseTo(-6016.505692, 2)
@@ -103,6 +109,7 @@ describe('computePositions — Excel golden values（持仓概览 5 只基金逐
   it('007824 天弘弘择短债债券C', () => {
     const p = byCode.get('007824')!
     expect(p.netCost).toBeCloseTo(40000, 2)
+    expect(p.costBasis).toBeCloseTo(40000, 2)
     expect(p.shares).toBeCloseTo(34314.15, 6)
     expect(p.marketValue).toBeCloseTo(40072.06437, 2)
     expect(p.pnl).toBeCloseTo(72.06437, 2)
@@ -128,23 +135,28 @@ describe('卖出与分红现金', () => {
   ]
   const navPoints: NavPoint[] = [{ fundCode: '999001', date: '2026-03-15', nav: 2.5, source: 'auto' }]
 
-  it('卖出扣减份额与成本（简单成本法）', () => {
+  it('卖出扣减份额与成本（严格成本法：移动加权平均）', () => {
     const [p] = computePositions([fund], transactions, navPoints)
     expect(p.invested).toBe(2000)
     expect(p.redeemed).toBe(1100)
     expect(p.netCost).toBe(900)
+    // 卖出 500/1000 份：消耗成本 1000，剩余持仓成本 1000
+    expect(p.costBasis).toBeCloseTo(1000, 6)
     expect(p.shares).toBe(500)
     expect(p.marketValue).toBeCloseTo(1250, 6)
-    expect(p.pnl).toBeCloseTo(350, 6)
-    expect(p.pnlRatio).toBeCloseTo(350 / 900, 9)
+    expect(p.pnl).toBeCloseTo(250, 6)
+    expect(p.pnlRatio).toBeCloseTo(250 / 1000, 9)
   })
 
-  it('分红现金计入落袋收益，不影响持仓盈亏', () => {
+  it('落袋收益 = 分红现金 + 卖出已实现收益，总收益数值与简单成本法恒等', () => {
     const [p] = computePositions([fund], transactions, navPoints)
     const totals = computeTotals([p], transactions)
-    expect(totals.realizedIncome).toBe(100)
-    expect(totals.totalReturn).toBeCloseTo(350 + 100, 6)
-    expect(p.pnl).toBeCloseTo(350, 6)
+    // 卖出已实现 = 1100 − 1000 = 100；落袋 = 100 + 分红 100 = 200
+    expect(totals.realizedIncome).toBeCloseTo(200, 6)
+    // 总收益 = 浮动 250 + 落袋 200 = 450（简单成本法口径亦为 350 + 100 = 450）
+    expect(totals.totalReturn).toBeCloseTo(450, 6)
+    expect(totals.totalReturnRate).toBeCloseTo(450 / 900, 9)
+    expect(p.pnl).toBeCloseTo(250, 6)
   })
 })
 
@@ -154,6 +166,7 @@ describe('边界情况', () => {
   it('无任何流水：零持仓，收益率保护为 null', () => {
     const [p] = computePositions([fund], [], [])
     expect(p.netCost).toBe(0)
+    expect(p.costBasis).toBe(0)
     expect(p.shares).toBe(0)
     expect(p.marketValue).toBeNull()
     expect(p.pnl).toBeNull()
@@ -161,7 +174,7 @@ describe('边界情况', () => {
     expect(totals.totalReturnRate).toBeNull()
   })
 
-  it('有成本但无净值：市值与盈亏为 null，总盈亏 = −总成本（简单成本法）', () => {
+  it('有成本但无净值：市值与盈亏为 null，总盈亏 = −持仓成本', () => {
     const txs: Transaction[] = [
       { date: '2026-01-01', type: '买入', fundCode: '999002', amount: 10000, shares: 10000, nav: 1, fee: 0, note: null }
     ]
@@ -186,9 +199,9 @@ describe('边界情况', () => {
 describe('大类配置对比', () => {
   it('投入比例/市值占比/偏离计算正确', () => {
     const positions = [
-      { fundCode: 'A', name: 'A', category: '固守+', fundType: null, targetAmount: null, invested: 300, redeemed: 0, netCost: 300, shares: 0, latestNav: null, latestNavDate: null, marketValue: 330, pnl: 30, pnlRatio: 0.1 },
-      { fundCode: 'B', name: 'B', category: '权益', fundType: null, targetAmount: null, invested: 100, redeemed: 0, netCost: 100, shares: 0, latestNav: null, latestNavDate: null, marketValue: 110, pnl: 10, pnlRatio: 0.1 },
-      { fundCode: 'C', name: 'C', category: '黄金', fundType: null, targetAmount: null, invested: 100, redeemed: 0, netCost: 100, shares: 0, latestNav: null, latestNavDate: null, marketValue: 100, pnl: 0, pnlRatio: 0 }
+      { fundCode: 'A', name: 'A', category: '固守+', fundType: null, targetAmount: null, invested: 300, redeemed: 0, netCost: 300, costBasis: 300, shares: 0, latestNav: null, latestNavDate: null, marketValue: 330, pnl: 30, pnlRatio: 0.1 },
+      { fundCode: 'B', name: 'B', category: '权益', fundType: null, targetAmount: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 0, latestNav: null, latestNavDate: null, marketValue: 110, pnl: 10, pnlRatio: 0.1 },
+      { fundCode: 'C', name: 'C', category: '黄金', fundType: null, targetAmount: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 0, latestNav: null, latestNavDate: null, marketValue: 100, pnl: 0, pnlRatio: 0 }
     ]
     const targets: CategoryTarget[] = [
       { category: '固守+', targetRatio: 0.25 },
@@ -288,7 +301,7 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
     { fundCode: 'B', date: '2026-01-20', nav: 2.4, source: 'import' }
   ]
 
-  it('逐日累计：净投入/落袋收益按日期截断，累计收益 = 市值 − 净投入 + 落袋', () => {
+  it('逐日累计：持仓成本/落袋收益按日期截断，累计收益 = 市值 − 持仓成本 + 落袋', () => {
     const series = computeStatsSeries(funds, transactions, navPoints)
     expect(series.map((p) => p.date)).toEqual([
       '2026-01-01',
@@ -297,18 +310,18 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
       '2026-01-15',
       '2026-01-20'
     ])
-    // 01-01：仅 A 建仓 100；净投入 100；累计收益 0
+    // 01-01：仅 A 建仓 100；持仓成本 100；累计收益 0
     expect(series[0]).toMatchObject({
       totalMarketValue: expect.closeTo(100, 6),
-      netCost: expect.closeTo(100, 6),
+      costBasis: expect.closeTo(100, 6),
       realizedIncome: 0,
       totalReturn: expect.closeTo(0, 6),
       weeklyReturn: null
     })
-    // 01-05：A 100 + B 100；净投入 200；无 ≥7 天前基准
+    // 01-05：A 100 + B 100；持仓成本 200；无 ≥7 天前基准
     expect(series[1]).toMatchObject({
       totalMarketValue: expect.closeTo(200, 6),
-      netCost: expect.closeTo(200, 6),
+      costBasis: expect.closeTo(200, 6),
       realizedIncome: 0,
       totalReturn: 0,
       weeklyReturn: null
@@ -316,7 +329,7 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
     // 01-10：市值 110+110；基准 01-01（差 9 天）：220 − 100 = 120
     expect(series[2]).toMatchObject({
       totalMarketValue: expect.closeTo(220, 6),
-      netCost: 200,
+      costBasis: 200,
       realizedIncome: 0,
       totalReturn: expect.closeTo(20, 6),
       weeklyReturn: { value: expect.closeTo(120, 6), baseDate: '2026-01-01' }
@@ -324,16 +337,16 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
     // 01-15：市值 120+105；分红现金 01-12 起计入落袋；基准 01-05（差 10 天）：225 − 200 = 25
     expect(series[3]).toMatchObject({
       totalMarketValue: expect.closeTo(225, 6),
-      netCost: 200,
+      costBasis: 200,
       realizedIncome: expect.closeTo(20, 6),
       totalReturn: expect.closeTo(45, 6),
       weeklyReturn: { value: expect.closeTo(25, 6), baseDate: '2026-01-05' }
     })
-    // 01-20：卖出后 B 剩 25 份 ×2.4 = 60，市值 130+60；净投入 200−60=140；基准 01-10：190 − 220 = −30
+    // 01-20：卖出 B 25/50 份（消耗成本 50，已实现 10）；持仓成本 150；落袋 20+10=30；基准 01-10：190 − 220 = −30
     expect(series[4]).toMatchObject({
       totalMarketValue: expect.closeTo(190, 6),
-      netCost: expect.closeTo(140, 6),
-      realizedIncome: 20,
+      costBasis: expect.closeTo(150, 6),
+      realizedIncome: expect.closeTo(30, 6),
       totalReturn: expect.closeTo(70, 6),
       weeklyReturn: { value: expect.closeTo(-30, 6), baseDate: '2026-01-10' }
     })
@@ -346,6 +359,201 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
     const last = series[series.length - 1]
     expect(last.totalMarketValue).toBeCloseTo(totals.totalAssets, 6)
     expect(last.totalReturn).toBeCloseTo(totals.totalReturn, 6)
+  })
+})
+
+describe('严格成本法 — 移动加权平均', () => {
+  const fund = (code: string, category = '权益'): Fund => ({
+    code,
+    name: `基金${code}`,
+    category,
+    fundType: null,
+    targetAmount: null
+  })
+
+  it('多次买入均价 + 部分卖出获利', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 10, nav: 10, fee: 0, note: null },
+      { date: '2026-02-01', type: '买入', fundCode: 'A', amount: 240, shares: 20, nav: 12, fee: 0, note: null },
+      { date: '2026-03-01', type: '卖出', fundCode: 'A', amount: -195, shares: -15, nav: 13, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2026-03-01', nav: 13, source: 'auto' }]
+    const [p] = computePositions([fund('A')], txs, navs)
+    // 均价 = 340/30；卖出消耗 340×15/30 = 170；已实现 = 195 − 170 = 25
+    expect(p.costBasis).toBeCloseTo(170, 6)
+    expect(p.shares).toBe(15)
+    expect(p.pnl).toBeCloseTo(25, 6) // 195 − 170
+    expect(p.pnlRatio).toBeCloseTo(25 / 170, 9)
+    const totals = computeTotals([p], txs)
+    expect(totals.realizedIncome).toBeCloseTo(25, 6)
+    expect(totals.totalReturn).toBeCloseTo(50, 6) // 简单成本法口径：195 − 145 = 50
+  })
+
+  it('部分卖出亏损：落袋收益含负数', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
+      { date: '2026-02-01', type: '卖出', fundCode: 'A', amount: -32, shares: -40, nav: 0.8, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2026-02-01', nav: 0.8, source: 'auto' }]
+    const [p] = computePositions([fund('A')], txs, navs)
+    // 消耗成本 40，已实现 = 32 − 40 = −8
+    expect(p.costBasis).toBeCloseTo(60, 6)
+    expect(p.pnl).toBeCloseTo(-12, 6) // 48 − 60
+    const totals = computeTotals([p], txs)
+    expect(totals.realizedIncome).toBeCloseTo(-8, 6)
+    expect(totals.totalReturn).toBeCloseTo(-20, 6) // 简单成本法口径：48 − 68 = −20
+  })
+
+  it('分红再投入 0 成本拉低均价：卖出时其市值成为已实现收益', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
+      { date: '2026-02-01', type: '分红再投入', fundCode: 'A', amount: 0, shares: 20, nav: 1.1, fee: 0, note: null },
+      { date: '2026-03-01', type: '卖出', fundCode: 'A', amount: -66, shares: -60, nav: 1.1, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2026-03-01', nav: 1.1, source: 'auto' }]
+    const [p] = computePositions([fund('A')], txs, navs)
+    // 均价 = 100/120；消耗成本 = 100×60/120 = 50；已实现 = 66 − 50 = 16
+    expect(p.costBasis).toBeCloseTo(50, 6)
+    expect(p.pnl).toBeCloseTo(16, 6) // 66 − 50
+    const totals = computeTotals([p], txs)
+    expect(totals.realizedIncome).toBeCloseTo(16, 6)
+    expect(totals.totalReturn).toBeCloseTo(32, 6) // 简单成本法口径：66 − 34 = 32
+  })
+
+  it('清仓：份额与持仓成本归零，盈亏与盈亏比例为 0/null，已实现收益全额落袋', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
+      { date: '2026-02-01', type: '卖出', fundCode: 'A', amount: -150, shares: -100, nav: 1.5, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2026-02-01', nav: 1.5, source: 'auto' }]
+    const [p] = computePositions([fund('A')], txs, navs)
+    expect(p.shares).toBe(0)
+    expect(p.costBasis).toBe(0)
+    expect(p.marketValue).toBe(0)
+    expect(p.pnl).toBe(0)
+    expect(p.pnlRatio).toBeNull()
+    const totals = computeTotals([p], txs)
+    expect(totals.realizedIncome).toBeCloseTo(50, 6)
+    expect(totals.totalPnl).toBe(0)
+    expect(totals.totalReturn).toBeCloseTo(50, 6)
+  })
+
+  it('清仓后再买：成本基础重建，历史已实现收益不参与新仓位', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
+      { date: '2026-02-01', type: '卖出', fundCode: 'A', amount: -150, shares: -100, nav: 1.5, fee: 0, note: null },
+      { date: '2026-03-01', type: '买入', fundCode: 'A', amount: 100, shares: 50, nav: 2, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2026-03-01', nav: 2, source: 'auto' }]
+    const [p] = computePositions([fund('A')], txs, navs)
+    expect(p.costBasis).toBe(100)
+    expect(p.pnl).toBe(0) // 100 − 100
+    const totals = computeTotals([p], txs)
+    expect(totals.realizedIncome).toBeCloseTo(50, 6)
+    expect(totals.totalReturn).toBeCloseTo(50, 6)
+    expect(totals.totalReturnRate).toBeCloseTo(1, 9) // 总收益 50 / 净投入 50
+  })
+
+  it('超卖防护：sharesBefore ≤ 0 时消耗成本为 0；部分超卖钳制到持仓成本', () => {
+    let st = applyCostBasis({ shares: 0, costBasis: 0, realizedGain: 0, cashDividends: 0 }, {
+      date: '2026-01-01',
+      type: '买入',
+      fundCode: 'A',
+      amount: 100,
+      shares: 100,
+      nav: 1,
+      fee: 0,
+      note: null
+    })
+    st = applyCostBasis(st, {
+      date: '2026-02-01',
+      type: '卖出',
+      fundCode: 'A',
+      amount: -150,
+      shares: -150,
+      nav: 1,
+      fee: 0,
+      note: null
+    })
+    // 部分超卖：消耗成本钳制为 100，已实现 = 150 − 100 = 50；份额 −50 → 持仓成本置 0
+    expect(st.shares).toBe(-50)
+    expect(st.costBasis).toBe(0)
+    expect(st.realizedGain).toBe(50)
+    st = applyCostBasis(st, {
+      date: '2026-03-01',
+      type: '卖出',
+      fundCode: 'A',
+      amount: -10,
+      shares: -10,
+      nav: 1,
+      fee: 0,
+      note: null
+    })
+    // sharesBefore ≤ 0：消耗成本 0，已实现 = 全额回款
+    expect(st.costBasis).toBe(0)
+    expect(st.realizedGain).toBe(60)
+  })
+
+  it('货基资金池全流程：落袋一次即锁定，资金池中转不冲减，货基一视同仁', () => {
+    const funds = [fund('A'), fund('007824', '流动性'), fund('B')]
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
+      // 再平衡：卖超配 40 份（回款 60，已实现 60 − 40 = 20）
+      { date: '2026-02-01', type: '卖出', fundCode: 'A', amount: -60, shares: -40, nav: 1.5, fee: 0, note: null },
+      // 回款买入资金池货基
+      { date: '2026-02-01', type: '买入', fundCode: '007824', amount: 60, shares: 60, nav: 1, fee: 0, note: null },
+      // 资金池赎出买 B（货基无盈亏，已实现 0）
+      { date: '2026-03-01', type: '卖出', fundCode: '007824', amount: -60, shares: -60, nav: 1, fee: 0, note: null },
+      { date: '2026-03-01', type: '买入', fundCode: 'B', amount: 60, shares: 60, nav: 1, fee: 0, note: null },
+      // A 分红现金
+      { date: '2026-04-01', type: '分红现金', fundCode: 'A', amount: 10, shares: null, nav: null, fee: null, note: null }
+    ]
+    const navs: NavPoint[] = [
+      { fundCode: 'A', date: '2026-04-01', nav: 1.5, source: 'auto' },
+      { fundCode: '007824', date: '2026-03-01', nav: 1, source: 'auto' },
+      { fundCode: 'B', date: '2026-04-01', nav: 1, source: 'auto' }
+    ]
+    const positions = computePositions(funds, txs, navs)
+    const byCode = new Map(positions.map((p) => [p.fundCode, p]))
+    // A：剩余 60 份 ×1.5 = 90，持仓成本 60，浮动 30
+    expect(byCode.get('A')!.pnl).toBeCloseTo(30, 6)
+    // 货基已清仓：与其它基金同一路径，无特殊分支
+    expect(byCode.get('007824')!.shares).toBe(0)
+    expect(byCode.get('007824')!.costBasis).toBe(0)
+    expect(byCode.get('007824')!.pnl).toBe(0)
+    expect(byCode.get('B')!.pnl).toBe(0)
+    const totals = computeTotals(positions, txs)
+    // 落袋 = 卖出已实现 20 + 分红 10 = 30；浮动 = 30；总收益 = 60（与简单成本法恒等）
+    expect(totals.realizedIncome).toBeCloseTo(30, 6)
+    expect(totals.totalPnl).toBeCloseTo(30, 6)
+    expect(totals.totalReturn).toBeCloseTo(60, 6)
+  })
+
+  it('净投入为负：总收益率返回 null，其余数字照常', () => {
+    const txs: Transaction[] = [
+      { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null },
+      { date: '2026-07-01', type: '卖出', fundCode: 'A', amount: -1200, shares: -500, nav: 2.4, fee: 0, note: null }
+    ]
+    const navs: NavPoint[] = [{ fundCode: 'A', date: '2026-07-01', nav: 2.4, source: 'auto' }]
+    const [p] = computePositions([fund('A')], txs, navs)
+    const totals = computeTotals([p], txs)
+    expect(totals.totalNetCost).toBe(-200)
+    expect(totals.totalReturnRate).toBeNull()
+    // 已实现 = 1200 − 500 = 700；浮动 = 1200 − 500 = 700；总收益 1400
+    expect(totals.realizedIncome).toBeCloseTo(700, 6)
+    expect(totals.totalReturn).toBeCloseTo(1400, 6)
+  })
+
+  it('同日多笔按输入顺序推进成本基础', () => {
+    const buy: Transaction = { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null }
+    const sell: Transaction = { date: '2026-01-01', type: '卖出', fundCode: 'A', amount: -50, shares: -50, nav: 1, fee: 0, note: null }
+    // 先买后卖：消耗成本 50，已实现 0
+    const buyFirst = costBasisStates([buy, sell]).get('A')!
+    expect(buyFirst.costBasis).toBe(50)
+    expect(buyFirst.realizedGain).toBe(0)
+    // 先卖后买（数据异常序）：sharesBefore ≤ 0，已实现按全额回款计
+    const sellFirst = costBasisStates([sell, buy]).get('A')!
+    expect(sellFirst.realizedGain).toBe(50)
   })
 })
 

@@ -60,22 +60,23 @@ export interface FundPosition {
   targetAmount: number | null
   invested: number // 累计买入金额
   redeemed: number // 累计赎回金额（非负）
-  netCost: number // 净投入成本 = 累计买入 − 累计赎回
+  netCost: number // 累计净投入 = 累计买入 − 累计赎回（大类对比与总收益率分母用）
+  costBasis: number // 持仓成本（移动加权平均成本基础，含手续费）
   shares: number // 当前份额
   latestNav: number | null
   latestNavDate: string | null
   marketValue: number | null // 当前市值 = 份额 × 最新净值
-  pnl: number | null // 持仓盈亏 = 市值 − 净投入成本
-  pnlRatio: number | null // 盈亏比例 = 持仓盈亏 / 净投入成本
+  pnl: number | null // 持仓盈亏（浮动盈亏）= 市值 − 持仓成本
+  pnlRatio: number | null // 盈亏比例 = 持仓盈亏 / 持仓成本（成本 ≤ 0 或无净值时为 null）
 }
 
 export interface Totals {
   totalNetCost: number
   totalAssets: number // 总市值
-  totalPnl: number // 总盈亏 = 总市值 − 总净投入（简单成本法）
-  totalReturnRate: number | null // 总收益率 = 总盈亏 / 总净投入
-  realizedIncome: number // 落袋收益 = Σ分红现金
-  totalReturn: number // 总收益 = 总盈亏 + 落袋收益
+  totalPnl: number // 持仓盈亏（浮动盈亏）= 总市值 − Σ持仓成本
+  totalReturnRate: number | null // 累计收益率 = 总收益 / 净投入成本（净投入 ≤ 0 时为 null）
+  realizedIncome: number // 落袋收益 = Σ分红现金 + Σ卖出已实现收益
+  totalReturn: number // 总收益 = 持仓盈亏 + 落袋收益（数值与简单成本法恒等）
 }
 
 export interface CategoryComparisonRow {
@@ -97,11 +98,11 @@ export interface WeeklyReturn {
   baseDate: string // 基准日期（≥7 天前最近的记录日）
 }
 
-/** 收益统计页时间序列点：总资产/净投入/落袋收益/累计收益/周收益。 */
+/** 收益统计页时间序列点：总资产/持仓成本/落袋收益/累计收益/周收益。 */
 export interface StatsPoint extends TimePoint {
-  netCost: number // 截至当日净投入成本 = 累计买入 − 累计赎回
-  realizedIncome: number // 截至当日落袋收益 = Σ分红现金
-  totalReturn: number // 累计收益 = 总市值 − 净投入成本 + 落袋收益
+  costBasis: number // 截至当日持仓成本 = Σ各基金移动加权成本基础
+  realizedIncome: number // 截至当日落袋收益 = Σ分红现金 + Σ卖出已实现收益
+  totalReturn: number // 累计收益 = 总市值 − 持仓成本 + 落袋收益
   weeklyReturn: WeeklyReturn | null // 无 ≥7 天前基准则为 null
 }
 

@@ -228,7 +228,7 @@ export default function TransactionForm({
         <button className="btn" onClick={onCancel}>
           取消
         </button>
-        <span className="muted">金额为含手续费的实付总额（净投入成本含手续费）；卖出录入正数即可；手续费留空默认 0。</span>
+        <span className="muted">金额为含手续费的实付总额（成本按含手续费金额计）；卖出录入正数即可；手续费留空默认 0。</span>
       </div>
     </div>
   )
