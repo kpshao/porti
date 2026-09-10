@@ -1,11 +1,12 @@
 /// <reference types="vite/client" />
 
-import type { FundInput, TransactionInput } from '../../engine'
+import type { FundInput, FundSeriesRange, TransactionInput } from '../../engine'
 import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../../importer/types'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from '../../main/navTypes'
 import type { MigrationMeta } from '../../main/migrationService'
 import type { OverviewData } from '../../main/overviewTypes'
 import type { StatsData } from '../../main/statsTypes'
+import type { FundDetailData } from '../../main/fundDetailTypes'
 
 declare global {
   interface DbInfo {
@@ -33,6 +34,7 @@ declare global {
       targetUpdateCategory: (category: string, targetRatio: number) => Promise<void>
       fundUpdateTarget: (code: string, targetAmount: number | null) => Promise<void>
       statsData: () => Promise<StatsData>
+      fundDetailData: (fundCode: string, range: FundSeriesRange) => Promise<FundDetailData>
       exportExcel: () => Promise<{ path: string } | null>
       exportCsv: () => Promise<{ dir: string; files: string[] } | null>
       setDbPath: () => Promise<{ path: string; changed: boolean } | null>

@@ -1,6 +1,7 @@
 import type {
   Fund,
   Transaction,
+  TransactionRow,
   NavPoint,
   FundPosition,
   Totals,
@@ -8,6 +9,8 @@ import type {
   CategoryTarget,
   TimePoint,
   StatsPoint,
+  FundSeriesPoint,
+  FundSeriesRange,
   WeeklyReturn,
   XirrCashFlow
 } from './types'
@@ -261,6 +264,58 @@ export function computeStatsSeries(
       weeklyReturn: weekly[i]
     }
   })
+}
+
+/** 单基金收益走势：该基金每个有净值记录的日期一个点；持仓成本/落袋收益按日期截断
+ * 推进（applyCostBasis，同日按 date, id 顺序——库内查询 ORDER BY date, id 同规则）；
+ * 累计盈亏 = 市值 − 持仓成本 + 落袋收益；累计收益率 = 累计盈亏 / 当日持仓成本
+ * （持仓成本 ≤ 0 时为 null，曲线断开）。基金不存在或无净值记录返回空序列。 */
+export function computeFundSeries(
+  fundCode: string,
+  funds: Fund[],
+  transactions: TransactionRow[],
+  navPoints: NavPoint[]
+): FundSeriesPoint[] {
+  if (!funds.some((f) => f.code === fundCode)) return []
+  const dates = [...new Set(navPoints.filter((p) => p.fundCode === fundCode).map((p) => p.date))].sort()
+  const sorted = transactions
+    .filter((t) => t.fundCode === fundCode)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id))
+  let state = ZERO_BASIS
+  let idx = 0
+  const series: FundSeriesPoint[] = []
+  for (const date of dates) {
+    while (idx < sorted.length && sorted[idx].date <= date) {
+      state = applyCostBasis(state, sorted[idx])
+      idx++
+    }
+    const nav = latestNavAsOf(navPoints, fundCode, date)
+    if (nav === null) continue // 防御：点日期即该基金自身净值日期，正常必存在
+    const marketValue = state.shares * nav.nav
+    const realizedIncome = state.realizedGain + state.cashDividends
+    const totalReturn = marketValue - state.costBasis + realizedIncome
+    series.push({
+      date,
+      marketValue,
+      costBasis: state.costBasis,
+      realizedIncome,
+      totalReturn,
+      totalReturnRate: state.costBasis > 0 ? totalReturn / state.costBasis : null
+    })
+  }
+  return series
+}
+
+/** 收益走势范围过滤：近1月/近3月/近1年 = 今天往前 30/90/365 天截取点集（含边界日）；
+ * 全部不截取。「今天」显式入参以保证可测。 */
+export function filterFundSeriesRange(
+  series: FundSeriesPoint[],
+  range: FundSeriesRange,
+  today: string
+): FundSeriesPoint[] {
+  if (range === 'all') return series
+  const days = { '1m': 30, '3m': 90, '1y': 365 }[range]
+  return series.filter((p) => daysBetween(p.date, today) <= days)
 }
 
 /** 资金加权年化收益率（XIRR）：求 r 使全部现金流与期末估值按 (1+r)^(−天数/365)

@@ -505,3 +505,71 @@ body {
 .modal .banner {
   margin-bottom: 12px;
 }
+
+/* 基金详情覆盖层（概览页点基金名称打开） */
+.modal-wide {
+  width: 880px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.modal-head h2 {
+  margin-bottom: 0;
+}
+
+.modal-close {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  color: #86909c;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.modal-close:hover {
+  color: #1f2329;
+}
+
+.detail-stats {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.detail-stats .stat-value {
+  font-size: 16px;
+}
+
+.detail-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.btn-compact {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* 概览持仓表基金名称链接 */
+.fund-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: #3370ff;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.fund-link:hover {
+  text-decoration: underline;
+}

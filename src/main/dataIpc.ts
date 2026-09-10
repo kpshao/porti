@@ -6,13 +6,23 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import {
   computeAnnualizedReturns,
   computeCategoryComparison,
+  computeFundSeries,
   computePositions,
   computeStatsSeries,
   computeTimeSeries,
   computeTotalAnnualizedReturn,
-  computeTotals
+  computeTotals,
+  costBasisStates,
+  filterFundSeriesRange
 } from '../engine'
-import type { AnnualizedReturnData, FundInput, NavPoint, Transaction, TransactionInput } from '../engine'
+import type {
+  AnnualizedReturnData,
+  FundInput,
+  FundSeriesRange,
+  NavPoint,
+  Transaction,
+  TransactionInput
+} from '../engine'
 import { reconcileAgainstExcel } from '../importer/reconcile'
 import { parseExcelFile } from '../importer/parse'
 import { importToDb } from '../importer/write'
@@ -30,6 +40,7 @@ import type { FetchStatus, NavData, NavFetchResult, NavInput } from './navTypes'
 import { updateCategoryTarget, updateFundTargetAmount } from './targetService'
 import type { OverviewData } from './overviewTypes'
 import type { StatsData } from './statsTypes'
+import type { FundDetailData } from './fundDetailTypes'
 
 export function registerDataIpc(): void {
   // 选择 Excel 文件；取消返回 null
@@ -151,6 +162,29 @@ export function registerDataIpc(): void {
     return {
       series: computeStatsSeries(funds, transactions, navPoints),
       positions: computePositions(funds, transactions, navPoints)
+    }
+  })
+
+  // ---------- 基金详情：指标行 + 单基金收益走势 ----------
+
+  ipcMain.handle('fund-detail:data', (_event, fundCode: string, range: FundSeriesRange): FundDetailData => {
+    const db = getDb()
+    if (!hasAnyData(db)) return { position: null, annualized: null, realizedIncome: 0, series: [], events: [] }
+    const funds = selectFunds(db)
+    const transactions = selectTransactions(db)
+    const navPoints = selectNavPoints(db)
+    const series = filterFundSeriesRange(
+      computeFundSeries(fundCode, funds, transactions, navPoints),
+      range,
+      todayString()
+    )
+    const basis = costBasisStates(transactions).get(fundCode)
+    return {
+      position: computePositions(funds, transactions, navPoints).find((p) => p.fundCode === fundCode) ?? null,
+      annualized: computeAnnualizedData(transactions, navPoints).perFund[fundCode] ?? null,
+      realizedIncome: basis === undefined ? 0 : basis.realizedGain + basis.cashDividends,
+      series,
+      events: transactions.filter((t) => t.fundCode === fundCode).map((t) => ({ date: t.date, type: t.type }))
     }
   })
 

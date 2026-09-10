@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Fund, Transaction, NavPoint, CategoryTarget } from './types'
+import type { Fund, Transaction, TransactionRow, NavPoint, FundSeriesPoint, CategoryTarget } from './types'
 import {
   computePositions,
   computeTotals,
@@ -7,6 +7,8 @@ import {
   computeTimeSeries,
   computeWeeklyReturn,
   computeStatsSeries,
+  computeFundSeries,
+  filterFundSeriesRange,
   computeAnnualizedReturns,
   computeTotalAnnualizedReturn,
   applyCostBasis,
@@ -359,6 +361,179 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
     const last = series[series.length - 1]
     expect(last.totalMarketValue).toBeCloseTo(totals.totalAssets, 6)
     expect(last.totalReturn).toBeCloseTo(totals.totalReturn, 6)
+  })
+})
+
+describe('单基金收益走势（computeFundSeries，手算黄金值）', () => {
+  const fund: Fund = { code: 'A', name: '基金A', category: '权益', fundType: null, targetAmount: null }
+  const nav = (date: string, value: number): NavPoint => ({ fundCode: 'A', date, nav: value, source: 'import' })
+
+  it('单笔买入 + 两日净值上涨：收益率 =（市值 − 成本）/ 成本', () => {
+    const txs: TransactionRow[] = [
+      { id: 1, date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null }
+    ]
+    const series = computeFundSeries('A', [fund], txs, [nav('2026-01-01', 1), nav('2026-01-02', 1.1)])
+    expect(series.map((p) => p.date)).toEqual(['2026-01-01', '2026-01-02'])
+    expect(series[0]).toMatchObject({
+      marketValue: expect.closeTo(1000, 6),
+      costBasis: 1000,
+      realizedIncome: 0,
+      totalReturn: expect.closeTo(0, 6),
+      totalReturnRate: expect.closeTo(0, 9)
+    })
+    expect(series[1]).toMatchObject({
+      marketValue: expect.closeTo(1100, 6),
+      costBasis: 1000,
+      totalReturn: expect.closeTo(100, 6),
+      totalReturnRate: expect.closeTo(0.1, 9)
+    })
+  })
+
+  it('买入 → 部分卖出 → 分红现金：移动加权成本与落袋收益逐日手算一致', () => {
+    const txs: TransactionRow[] = [
+      { id: 1, date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null },
+      { id: 2, date: '2026-01-02', type: '卖出', fundCode: 'A', amount: -750, shares: -500, nav: 1.5, fee: 0, note: null },
+      { id: 3, date: '2026-01-03', type: '分红现金', fundCode: 'A', amount: 100, shares: null, nav: null, fee: null, note: null }
+    ]
+    const series = computeFundSeries('A', [fund], txs, [
+      nav('2026-01-01', 1),
+      nav('2026-01-02', 1.5),
+      nav('2026-01-03', 1.6)
+    ])
+    // 01-02：卖出 500/1000 份，消耗成本 500，已实现 = 750 − 500 = 250
+    expect(series[1]).toMatchObject({
+      marketValue: expect.closeTo(750, 6),
+      costBasis: expect.closeTo(500, 6),
+      realizedIncome: expect.closeTo(250, 6),
+      totalReturn: expect.closeTo(500, 6),
+      totalReturnRate: expect.closeTo(1, 9)
+    })
+    // 01-03：落袋 = 250 + 分红现金 100 = 350
+    expect(series[2]).toMatchObject({
+      marketValue: expect.closeTo(800, 6),
+      costBasis: expect.closeTo(500, 6),
+      realizedIncome: expect.closeTo(350, 6),
+      totalReturn: expect.closeTo(650, 6),
+      totalReturnRate: expect.closeTo(1.3, 9)
+    })
+  })
+
+  it('分红再投入：份额加、成本不变，累计盈亏跳升', () => {
+    const txs: TransactionRow[] = [
+      { id: 1, date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null },
+      { id: 2, date: '2026-01-02', type: '分红再投入', fundCode: 'A', amount: 0, shares: 100, nav: 1.2, fee: 0, note: null }
+    ]
+    const series = computeFundSeries('A', [fund], txs, [nav('2026-01-01', 1), nav('2026-01-02', 1.2)])
+    expect(series[1]).toMatchObject({
+      marketValue: expect.closeTo(1320, 6),
+      costBasis: 1000,
+      realizedIncome: 0,
+      totalReturn: expect.closeTo(320, 6),
+      totalReturnRate: expect.closeTo(0.32, 9)
+    })
+  })
+
+  it('全部卖出后：持仓成本为 0，收益率为 null、累计盈亏为落袋平台', () => {
+    const txs: TransactionRow[] = [
+      { id: 1, date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null },
+      { id: 2, date: '2026-01-02', type: '卖出', fundCode: 'A', amount: -1500, shares: -1000, nav: 1.5, fee: 0, note: null }
+    ]
+    const series = computeFundSeries('A', [fund], txs, [
+      nav('2026-01-01', 1),
+      nav('2026-01-02', 1.5),
+      nav('2026-01-03', 1.6)
+    ])
+    expect(series[1]).toMatchObject({
+      marketValue: 0,
+      costBasis: 0,
+      realizedIncome: expect.closeTo(500, 6),
+      totalReturn: expect.closeTo(500, 6),
+      totalReturnRate: null
+    })
+    expect(series[2]).toMatchObject({
+      marketValue: 0,
+      costBasis: 0,
+      realizedIncome: expect.closeTo(500, 6),
+      totalReturn: expect.closeTo(500, 6),
+      totalReturnRate: null
+    })
+  })
+
+  it('同日多笔按 date, id 顺序截断（输入乱序也一致）', () => {
+    const buyRow: TransactionRow = {
+      id: 1, date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null
+    }
+    const sellRow: TransactionRow = {
+      id: 2, date: '2026-01-01', type: '卖出', fundCode: 'A', amount: -750, shares: -500, nav: 1.5, fee: 0, note: null
+    }
+    // 乱序输入（先卖后买）：按 date, id 排序后仍先买后卖，消耗成本 500、已实现 250
+    const series = computeFundSeries('A', [fund], [sellRow, buyRow], [nav('2026-01-01', 1.5)])
+    expect(series).toHaveLength(1)
+    expect(series[0]).toMatchObject({
+      marketValue: expect.closeTo(750, 6),
+      costBasis: expect.closeTo(500, 6),
+      realizedIncome: expect.closeTo(250, 6),
+      totalReturn: expect.closeTo(500, 6),
+      totalReturnRate: expect.closeTo(1, 9)
+    })
+  })
+
+  it('无净值记录 → 空序列；未知基金代码 → 空序列', () => {
+    const txs: TransactionRow[] = [
+      { id: 1, date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null }
+    ]
+    expect(computeFundSeries('A', [fund], txs, [])).toEqual([])
+    expect(computeFundSeries('X', [fund], txs, [nav('2026-01-01', 1)])).toEqual([])
+  })
+
+  it('净值日期早于首笔流水：份额为 0，市值与成本为 0，收益率为 null', () => {
+    const txs: TransactionRow[] = [
+      { id: 1, date: '2026-01-02', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null }
+    ]
+    const series = computeFundSeries('A', [fund], txs, [nav('2026-01-01', 1), nav('2026-01-02', 1)])
+    expect(series[0]).toMatchObject({
+      marketValue: 0,
+      costBasis: 0,
+      realizedIncome: 0,
+      totalReturn: 0,
+      totalReturnRate: null
+    })
+    expect(series[1]).toMatchObject({
+      marketValue: expect.closeTo(1000, 6),
+      costBasis: 1000,
+      totalReturnRate: expect.closeTo(0, 9)
+    })
+  })
+})
+
+describe('收益走势范围过滤（filterFundSeriesRange，边界手算）', () => {
+  const point = (date: string): FundSeriesPoint => ({
+    date,
+    marketValue: 0,
+    costBasis: 1,
+    realizedIncome: 0,
+    totalReturn: 0,
+    totalReturnRate: 0
+  })
+  const series = [point('2025-12-30'), point('2025-12-31'), point('2026-01-30'), point('2026-01-31'), point('2026-02-28')]
+
+  it('全部：不截取', () => {
+    expect(filterFundSeriesRange(series, 'all', '2026-03-02')).toHaveLength(5)
+  })
+
+  it('近1月：今天往前 30 天（含边界日 01-31）', () => {
+    const filtered = filterFundSeriesRange(series, '1m', '2026-03-02')
+    expect(filtered.map((p) => p.date)).toEqual(['2026-01-31', '2026-02-28'])
+  })
+
+  it('近3月：今天往前 90 天（含边界日 12-31）', () => {
+    const filtered = filterFundSeriesRange(series, '3m', '2026-03-31')
+    expect(filtered.map((p) => p.date)).toEqual(['2025-12-31', '2026-01-30', '2026-01-31', '2026-02-28'])
+  })
+
+  it('近1年：今天往前 365 天（含边界日，一年前整日）', () => {
+    const filtered = filterFundSeriesRange(series, '1y', '2027-01-01')
+    expect(filtered.map((p) => p.date)).toEqual(['2026-01-30', '2026-01-31', '2026-02-28'])
   })
 })
 

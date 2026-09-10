@@ -1,10 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { FundInput, TransactionInput } from '../engine'
+import type { FundInput, FundSeriesRange, TransactionInput } from '../engine'
 import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../importer/types'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from '../main/navTypes'
 import type { MigrationMeta } from '../main/migrationService'
 import type { OverviewData } from '../main/overviewTypes'
 import type { StatsData } from '../main/statsTypes'
+import type { FundDetailData } from '../main/fundDetailTypes'
 
 // 渲染进程可用的最小 API 面，后续里程碑逐步扩展
 const api = {
@@ -30,6 +31,8 @@ const api = {
   fundUpdateTarget: (code: string, targetAmount: number | null): Promise<void> =>
     ipcRenderer.invoke('fund:update-target', code, targetAmount),
   statsData: (): Promise<StatsData> => ipcRenderer.invoke('stats:data'),
+  fundDetailData: (fundCode: string, range: FundSeriesRange): Promise<FundDetailData> =>
+    ipcRenderer.invoke('fund-detail:data', fundCode, range),
   exportExcel: (): Promise<{ path: string } | null> => ipcRenderer.invoke('export:excel'),
   exportCsv: (): Promise<{ dir: string; files: string[] } | null> => ipcRenderer.invoke('export:csv'),
   setDbPath: (): Promise<{ path: string; changed: boolean } | null> =>

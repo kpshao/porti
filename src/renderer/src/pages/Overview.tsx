@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { OverviewData } from '../../../main/overviewTypes'
+import FundDetail from '../components/FundDetail'
 import { formatMoney, formatNav, formatPercent, formatShares } from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
 
@@ -51,6 +52,7 @@ export default function Overview(): React.JSX.Element {
   const [ratioEdits, setRatioEdits] = useState<Edits>({})
   const [busy, setBusy] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  const [detail, setDetail] = useState<{ code: string; name: string } | null>(null)
 
   const reload = (): void => {
     window.api.overviewData().then(setData).catch((e) => setError(ipcErrorMessage(e)))
@@ -192,7 +194,14 @@ export default function Overview(): React.JSX.Element {
                   return (
                     <tr key={p.fundCode}>
                       <td>{p.fundCode}</td>
-                      <td>{p.name}</td>
+                      <td>
+                        <button
+                          className="fund-link"
+                          onClick={() => setDetail({ code: p.fundCode, name: p.name })}
+                        >
+                          {p.name}
+                        </button>
+                      </td>
                       <td>{p.category}</td>
                       <td>{formatShares(p.shares)}</td>
                       <td>{formatMoney(p.costBasis)}</td>
@@ -218,7 +227,9 @@ export default function Overview(): React.JSX.Element {
                 })}
             </tbody>
           </table>
-          <p className="muted">目标金额可直接在行内修改（留空清空），失焦或回车后保存，配置对比实时更新。</p>
+          <p className="muted">
+            目标金额可直接在行内修改（留空清空），失焦或回车后保存，配置对比实时更新；点击基金名称可查看基金详情与收益走势。
+          </p>
         </div>
       )}
 
@@ -278,6 +289,10 @@ export default function Overview(): React.JSX.Element {
         <p className="placeholder">
           暂无数据。请先在「交易流水」页导入 Excel 或新增基金，概览将实时汇总持仓与配置对比。
         </p>
+      )}
+
+      {detail !== null && (
+        <FundDetail fundCode={detail.code} fundName={detail.name} onClose={() => setDetail(null)} />
       )}
     </section>
   )

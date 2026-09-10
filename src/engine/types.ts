@@ -106,6 +106,19 @@ export interface StatsPoint extends TimePoint {
   weeklyReturn: WeeklyReturn | null // 无 ≥7 天前基准则为 null
 }
 
+/** 单基金收益走势点：该基金某有净值记录日期的累计收益快照。 */
+export interface FundSeriesPoint {
+  date: string
+  marketValue: number // 当日市值 = 截至当日份额 × 截至当日最新净值
+  costBasis: number // 截至当日持仓成本（移动加权平均）
+  realizedIncome: number // 截至当日落袋收益 = Σ分红现金 + Σ卖出已实现收益
+  totalReturn: number // 累计盈亏 = 市值 − 持仓成本 + 落袋收益
+  totalReturnRate: number | null // 累计收益率 = 累计盈亏 / 当日持仓成本（成本 ≤ 0 时为 null）
+}
+
+/** 收益走势时间范围：近1月/近3月/近1年 = 今天往前 30/90/365 天截取点集；全部不截取 */
+export type FundSeriesRange = '1m' | '3m' | '1y' | 'all'
+
 /** XIRR 现金流：金额为归一化符号（流出为负、流入为正） */
 export interface XirrCashFlow {
   date: string
