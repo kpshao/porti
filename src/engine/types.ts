@@ -70,6 +70,13 @@ export interface FundPosition {
   pnlRatio: number | null // 盈亏比例 = 持仓盈亏 / 持仓成本（成本 ≤ 0 或无净值时为 null）
 }
 
+/** 概览持仓明细的大类分组：组头 + 组内明细 */
+export interface PositionGroup {
+  category: string // 组名：CATEGORIES 之一，或兜底组「其他」
+  marketValue: number | null // 组头合计（口径见 groupPositionsByCategory）；组内全无净值时为 null
+  positions: FundPosition[] // 组内明细，按基金代码升序
+}
+
 export interface Totals {
   totalNetCost: number
   totalAssets: number // 总市值

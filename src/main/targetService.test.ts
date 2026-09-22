@@ -25,14 +25,14 @@ describe('seedDefaultCategoryTargets — 默认目标种子（ticket 默认值�
   it('空库种子五个默认大类比例', () => {
     const db = freshDb()
     seedDefaultCategoryTargets(db)
-    // repo 按 category 排序（UTF-8 字节序），期望顺序与库内一致
-    expect(selectCategoryTargets(db)).toEqual([
-      { category: '固守+', targetRatio: 0.25 },
-      { category: '权益', targetRatio: 0.2 },
-      { category: '流动性', targetRatio: 0.05 },
-      { category: '纯债', targetRatio: 0.45 },
-      { category: '黄金', targetRatio: 0.05 }
-    ])
+    // 顺序不属于本函数的契约（消费方 computeCategoryComparison 负责按 CATEGORIES 排序），此处只校验集合
+    expect(Object.fromEntries(selectCategoryTargets(db).map((t) => [t.category, t.targetRatio]))).toEqual({
+      '固守+': 0.25,
+      纯债: 0.45,
+      权益: 0.2,
+      黄金: 0.05,
+      流动性: 0.05
+    })
   })
 
   it('已有目标（如 Excel 导入值）不覆盖', () => {

@@ -222,6 +222,31 @@ body {
   white-space: nowrap;
 }
 
+/* 分组合并列（概览持仓明细的「大类」/「大类市值」）：跨行合并、垂直居中，
+   浅灰底把两列连成一条组色带，让"组"从"行"里分出来。沿用既有 #f2f3f5，不用新色 */
+.table .group-cell {
+  background: #f2f3f5;
+  vertical-align: middle;
+  font-weight: 600;
+}
+
+/* 概览持仓明细 12 列，默认窗口（1280）内容区约 1020px 而内容需约 1090px——
+   在 .table 之上再收紧横向空间，否则基金名称与「大类」会被挤断行。
+   窗口缩到 minWidth(960) 时仍会折行，那是接受的降级。 */
+.table-positions th,
+.table-positions td {
+  padding: 8px 6px;
+}
+
+/* 组标签永不折行：「固守+」断成「固守 / +」在任何宽度下都是错的 */
+.table-positions .group-cell {
+  white-space: nowrap;
+}
+
+.table-positions .inline-edit {
+  width: 88px;
+}
+
 .fix-list {
   list-style: none;
   font-size: 13px;

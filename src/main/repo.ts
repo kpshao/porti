@@ -16,9 +16,10 @@ export function selectFunds(db: Database.Database): Fund[] {
   }))
 }
 
+/** 大类目标比例。顺序不属于本函数的契约——消费方 computeCategoryComparison 负责按 CATEGORIES 排序。 */
 export function selectCategoryTargets(db: Database.Database): CategoryTarget[] {
   const rows = db
-    .prepare('SELECT category, target_ratio FROM category_targets ORDER BY category')
+    .prepare('SELECT category, target_ratio FROM category_targets')
     .all() as { category: string; target_ratio: number }[]
   return rows.map((r) => ({ category: r.category, targetRatio: r.target_ratio }))
 }

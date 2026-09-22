@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import type { Fund, Transaction, TransactionRow, NavPoint, FundSeriesPoint, CategoryTarget } from './types'
+import type {
+  Fund,
+  Transaction,
+  TransactionRow,
+  NavPoint,
+  FundSeriesPoint,
+  FundPosition,
+  CategoryTarget
+} from './types'
 import {
   computePositions,
   computeTotals,
@@ -13,8 +21,36 @@ import {
   computeTotalAnnualizedReturn,
   applyCostBasis,
   costBasisStates,
+  groupPositionsByCategory,
+  OTHER_CATEGORY,
   xirr
 } from './compute'
+
+/** 构造持仓：只关心分组与对比用到的字段，其余给中性值 */
+function mkPosition(
+  fundCode: string,
+  category: string,
+  marketValue: number | null,
+  shares = 100
+): FundPosition {
+  return {
+    fundCode,
+    name: fundCode,
+    category,
+    fundType: null,
+    targetAmount: null,
+    invested: 0,
+    redeemed: 0,
+    netCost: 0,
+    costBasis: 0,
+    shares,
+    latestNav: null,
+    latestNavDate: null,
+    marketValue,
+    pnl: null,
+    pnlRatio: null
+  }
+}
 
 // ---------- Golden fixtures：取自 投资跟踪.xlsx 持仓概览的真实数据 ----------
 
@@ -235,6 +271,96 @@ describe('大类配置对比', () => {
     const gold = byCat.get('黄金')!
     expect(gold.targetRatio).toBe(0.05)
     expect(rows.length).toBe(5)
+  })
+
+  it('行序按 CATEGORIES 声明顺序；闭集之外的类目排在其后且保持并集内相对次序', () => {
+    const positions = [
+      mkPosition('200001', '黄金', 100),
+      mkPosition('300001', '股票型', 100),
+      mkPosition('300002', 'QDII', 100),
+      mkPosition('100001', '固守+', 100)
+    ]
+    const targets: CategoryTarget[] = [
+      { category: '流动性', targetRatio: 0.05 },
+      { category: '固守+', targetRatio: 0.25 }
+    ]
+    const rows = computeCategoryComparison(positions, targets)
+    // 并集顺序为 流动性/固守+/黄金/股票型/QDII；按 CATEGORIES 排名后 = 固守+(0) → 黄金(3) → 流动性(4)
+    // → 闭集外的股票型、QDII（同分，稳定排序保持并集内相对次序）
+    expect(rows.map((r) => r.category)).toEqual(['固守+', '黄金', '流动性', '股票型', 'QDII'])
+  })
+})
+
+describe('持仓明细按大类分组', () => {
+  it('组序按 CATEGORIES 声明顺序（输入乱序也如此），组内按基金代码升序', () => {
+    const groups = groupPositionsByCategory([
+      mkPosition('300001', '流动性', 300),
+      mkPosition('200002', '权益', 100),
+      mkPosition('200001', '权益', 200),
+      mkPosition('100001', '固守+', 500)
+    ])
+    expect(groups.map((g) => g.category)).toEqual(['固守+', '权益', '流动性'])
+    // 组内按代码升序，与市值无关（200001 市值更小仍排在 200002 前面）
+    expect(groups[1].positions.map((p) => p.fundCode)).toEqual(['200001', '200002'])
+  })
+
+  it('组头合计 = Σ市值；无持仓的大类不产生组', () => {
+    const groups = groupPositionsByCategory([
+      mkPosition('200001', '权益', 100),
+      mkPosition('200002', '权益', 250.5),
+      mkPosition('100001', '固守+', 500)
+    ])
+    expect(groups.map((g) => g.category)).toEqual(['固守+', '权益'])
+    expect(groups[0].marketValue).toBeCloseTo(500, 9)
+    expect(groups[1].marketValue).toBeCloseTo(350.5, 9)
+  })
+
+  it('已清仓（份额为 0）被过滤；过滤后为空的大类不产生组', () => {
+    const groups = groupPositionsByCategory([
+      mkPosition('200001', '权益', 100),
+      mkPosition('400001', '黄金', 0, 0) // 已清仓：黄金组过滤后为空，不应出现
+    ])
+    expect(groups.map((g) => g.category)).toEqual(['权益'])
+  })
+
+  it('非五类的脏值与空串归入「其他」并置底', () => {
+    const groups = groupPositionsByCategory([
+      mkPosition('900002', '股票', 10),
+      mkPosition('900001', '', 20),
+      mkPosition('100001', '固守+', 500)
+    ])
+    expect(groups.map((g) => g.category)).toEqual(['固守+', OTHER_CATEGORY])
+    expect(groups[1].marketValue).toBeCloseTo(30, 9)
+    expect(groups[1].positions.map((p) => p.fundCode)).toEqual(['900001', '900002'])
+  })
+
+  it('市值有无与大小都不影响组内次序（代码是主键、不并列，无需 tie-break）', () => {
+    const groups = groupPositionsByCategory([
+      mkPosition('200003', '权益', null),
+      mkPosition('200001', '权益', 999),
+      mkPosition('200002', '权益', 1)
+    ])
+    expect(groups[0].positions.map((p) => p.fundCode)).toEqual(['200001', '200002', '200003'])
+  })
+
+  it('组内全部无净值时组头合计为空值', () => {
+    const groups = groupPositionsByCategory([
+      mkPosition('200001', '权益', null),
+      mkPosition('200002', '权益', null)
+    ])
+    expect(groups[0].marketValue).toBeNull()
+  })
+
+  it('各组头合计之和 == 总资产（含已清仓持仓时为同一口径）', () => {
+    const positions = [
+      mkPosition('100001', '固守+', 500),
+      mkPosition('200001', '权益', 100),
+      mkPosition('200002', '权益', null),
+      mkPosition('400001', '黄金', 0, 0) // 已清仓：对两个口径都贡献 0
+    ]
+    const groups = groupPositionsByCategory(positions)
+    const sum = groups.reduce((s, g) => s + (g.marketValue ?? 0), 0)
+    expect(sum).toBeCloseTo(computeTotals(positions, []).totalAssets, 9)
   })
 })
 

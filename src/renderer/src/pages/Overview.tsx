@@ -167,12 +167,13 @@ export default function Overview(): React.JSX.Element {
       {hasData && (
         <div className="card">
           <h2>持仓明细</h2>
-          <table className="table">
+          <table className="table table-positions">
             <thead>
               <tr>
+                <th>大类</th>
+                <th>大类市值</th>
                 <th>代码</th>
                 <th>名称</th>
-                <th>大类</th>
                 <th>份额</th>
                 <th>持仓成本</th>
                 <th>最新净值</th>
@@ -183,16 +184,26 @@ export default function Overview(): React.JSX.Element {
                 <th>目标金额（元）</th>
               </tr>
             </thead>
-            <tbody>
-              {data.positions
-                .filter((p) => p.shares !== 0)
-                .map((p) => {
+            {/* 每个大类一个 tbody：首两列（大类 / 大类市值）只在组内第一行渲染并 rowSpan 合并到整组 */}
+            {data.positionGroups.map((group) => (
+              <tbody key={group.category}>
+                {group.positions.map((p, rowIndex) => {
                   const editValue = amountEdits[p.fundCode]
                   const inputValue =
                     editValue !== undefined ? editValue : p.targetAmount === null ? '' : String(p.targetAmount)
                   const annualized = data.annualized.perFund[p.fundCode]
                   return (
                     <tr key={p.fundCode}>
+                      {rowIndex === 0 && (
+                        <>
+                          <td className="group-cell" rowSpan={group.positions.length}>
+                            {group.category}
+                          </td>
+                          <td className="group-cell" rowSpan={group.positions.length}>
+                            {formatMoney(group.marketValue)}
+                          </td>
+                        </>
+                      )}
                       <td>{p.fundCode}</td>
                       <td>
                         <button
@@ -202,7 +213,6 @@ export default function Overview(): React.JSX.Element {
                           {p.name}
                         </button>
                       </td>
-                      <td>{p.category}</td>
                       <td>{formatShares(p.shares)}</td>
                       <td>{formatMoney(p.costBasis)}</td>
                       <td>{formatNav(p.latestNav)}</td>
@@ -225,7 +235,8 @@ export default function Overview(): React.JSX.Element {
                     </tr>
                   )
                 })}
-            </tbody>
+              </tbody>
+            ))}
           </table>
           <p className="muted">
             目标金额可直接在行内修改（留空清空），失焦或回车后保存，配置对比实时更新；点击基金名称可查看基金详情与收益走势。

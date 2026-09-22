@@ -4,6 +4,7 @@ import type {
   TransactionRow,
   NavPoint,
   FundPosition,
+  PositionGroup,
   Totals,
   CategoryComparisonRow,
   CategoryTarget,
@@ -14,6 +15,7 @@ import type {
   WeeklyReturn,
   XirrCashFlow
 } from './types'
+import { CATEGORIES } from './validation'
 
 const NEVER = '9999-12-31'
 
@@ -164,13 +166,60 @@ export function computeTotals(positions: FundPosition[], transactions: Transacti
   }
 }
 
-/** 大类配置对比：目标比例 / 实际投入比例 / 实际市值占比 / 偏离。 */
+/** 兜底组名：category 不在 CATEGORIES 内的持仓（脏值、空串）归入此组，恒定排在五类之后 */
+export const OTHER_CATEGORY = '其他'
+
+/** 是否为标准资产大类（CATEGORIES 闭集） */
+function isCategory(value: string): boolean {
+  return (CATEGORIES as readonly string[]).includes(value)
+}
+
+/** 组内排序：基金代码升序。代码是主键、不并列，故无需 tie-break；
+ *  与导出「持仓明细」同向（那边也是代码升序），界面与导出在同一大类内部排序一致。 */
+function byFundCode(a: FundPosition, b: FundPosition): number {
+  return a.fundCode < b.fundCode ? -1 : a.fundCode > b.fundCode ? 1 : 0
+}
+
+/** 组头合计：Σ市值（缺失按 0 计入，与 computeTotals().totalAssets 同口径）；组内全无净值时为空 */
+function groupMarketValue(rows: FundPosition[]): number | null {
+  if (rows.every((p) => p.marketValue === null)) return null
+  return rows.reduce((sum, p) => sum + (p.marketValue ?? 0), 0)
+}
+
+/** 持仓明细的大类分组（概览页表格的组织方式）。规则：
+ *  只纳入仍有份额的持仓（shares !== 0，与导出、界面既有口径一致），过滤后为空的大类不产生组；
+ *  组序按 CATEGORIES 声明顺序，兜底组「其他」恒定置底；组内按基金代码升序（见 byFundCode）。 */
+export function groupPositionsByCategory(positions: FundPosition[]): PositionGroup[] {
+  const buckets = new Map<string, FundPosition[]>()
+  for (const p of positions) {
+    if (p.shares === 0) continue
+    const key = isCategory(p.category) ? p.category : OTHER_CATEGORY
+    const bucket = buckets.get(key)
+    if (bucket === undefined) buckets.set(key, [p])
+    else bucket.push(p)
+  }
+  const groups: PositionGroup[] = []
+  for (const category of [...CATEGORIES, OTHER_CATEGORY]) {
+    const rows = buckets.get(category)
+    if (rows === undefined) continue
+    rows.sort(byFundCode)
+    groups.push({ category, marketValue: groupMarketValue(rows), positions: rows })
+  }
+  return groups
+}
+
+/** 大类配置对比：目标比例 / 实际投入比例 / 实际市值占比 / 偏离。
+ *  行序按 CATEGORIES 声明顺序；闭集之外的类目排在其后（保留其在并集中的相对次序）。 */
 export function computeCategoryComparison(
   positions: FundPosition[],
   targets: CategoryTarget[]
 ): CategoryComparisonRow[] {
   const targetMap = new Map(targets.map((t) => [t.category, t.targetRatio]))
   const categories = [...new Set([...targets.map((t) => t.category), ...positions.map((p) => p.category)])]
+  const rank = new Map<string, number>(CATEGORIES.map((c, i): [string, number] => [c, i]))
+  categories.sort(
+    (a, b) => (rank.get(a) ?? CATEGORIES.length) - (rank.get(b) ?? CATEGORIES.length)
+  )
   const totalNetCost = positions.reduce((s, p) => s + p.netCost, 0)
   const totalAssets = positions.reduce((s, p) => s + (p.marketValue ?? 0), 0)
   return categories.map((category) => {

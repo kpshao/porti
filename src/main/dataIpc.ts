@@ -13,7 +13,8 @@ import {
   computeTotalAnnualizedReturn,
   computeTotals,
   costBasisStates,
-  filterFundSeriesRange
+  filterFundSeriesRange,
+  groupPositionsByCategory
 } from '../engine'
 import type {
   AnnualizedReturnData,
@@ -127,7 +128,7 @@ export function registerDataIpc(): void {
   ipcMain.handle('overview:data', (): OverviewData => {
     const db = getDb()
     if (!hasAnyData(db)) {
-      return { funds: [], positions: [], totals: null, comparison: [], annualized: emptyAnnualized() }
+      return { funds: [], positionGroups: [], totals: null, comparison: [], annualized: emptyAnnualized() }
     }
     const funds = selectFunds(db)
     const transactions = selectTransactions(db)
@@ -136,7 +137,7 @@ export function registerDataIpc(): void {
     const comparison = computeCategoryComparison(positions, selectCategoryTargets(db))
     return {
       funds,
-      positions,
+      positionGroups: groupPositionsByCategory(positions),
       totals: computeTotals(positions, transactions),
       comparison,
       annualized: computeAnnualizedData(transactions, navPoints)
