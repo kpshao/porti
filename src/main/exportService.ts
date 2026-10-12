@@ -70,7 +70,7 @@ function overviewSheet(
       ['总资产', money(totals.totalAssets)],
       ['持仓盈亏', money(totals.totalPnl)],
       ['总收益率(%)', percent(totals.totalReturnRate)],
-      ['落袋收益', money(totals.realizedIncome)],
+      ['已实现盈亏', money(totals.realizedIncome)],
       ['总收益', money(totals.totalReturn)],
       ['净投入成本', money(totals.totalNetCost)],
       [],

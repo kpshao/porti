@@ -3,6 +3,7 @@ import type { FundSeriesPoint, FundSeriesRange, OperationType } from '../../../e
 import type { FundDetailData, FundDetailEvent } from '../../../main/fundDetailTypes'
 import { formatMoney, formatPercent } from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
+import { pnlClass } from '../utils/pnl'
 import { lineChartOption, useEChart } from './charts'
 
 /** 流水事件标注配色：与流水表 tag 同色系 */
@@ -19,12 +20,6 @@ const RANGE_OPTIONS: { value: FundSeriesRange; label: string }[] = [
   { value: '1y', label: '近1年' },
   { value: 'all', label: '全部' }
 ]
-
-/** 盈亏类着色：null 不着色，正红负绿（中国习惯） */
-function pnlClass(n: number | null | undefined): string {
-  if (n === null || n === undefined) return ''
-  return n >= 0 ? 'positive' : 'negative'
-}
 
 interface FundDetailProps {
   fundCode: string
@@ -135,8 +130,10 @@ export default function FundDetail({ fundCode, fundName, onClose }: FundDetailPr
               </div>
             </div>
             <div className="stat">
-              <div className="stat-label">落袋收益</div>
-              <div className="stat-value">{formatMoney(data.realizedIncome)}</div>
+              <div className="stat-label">已实现盈亏</div>
+              <div className={`stat-value ${pnlClass(data.realizedIncome)}`}>
+                {formatMoney(data.realizedIncome)}
+              </div>
             </div>
             <div className="stat">
               <div className="stat-label">年化收益率</div>
@@ -178,7 +175,7 @@ export default function FundDetail({ fundCode, fundName, onClose }: FundDetailPr
             <div ref={chartRef} className="chart chart-lg" />
             <p className="muted">
               累计收益率 = 累计盈亏 ÷ 当日持仓成本（清仓区间无定义，曲线断开）；累计盈亏 = 市值 − 持仓成本 +
-              落袋收益。图上圆点为买入/卖出/分红事件。
+              已实现盈亏。图上圆点为买入/卖出/分红事件。
             </p>
           </>
         )}

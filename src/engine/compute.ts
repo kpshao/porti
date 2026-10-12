@@ -138,9 +138,9 @@ export function computePositions(
   })
 }
 
-/** 汇总：总市值/持仓盈亏（浮动）/累计收益率/落袋收益/总收益。
- *  落袋收益按流水 fundCode 统计（含已删除基金的流水，与现状逐笔遍历一致）；
- *  总收益 = 持仓盈亏 + 落袋收益，数值与简单成本法（市值 − 净投入 + 分红）恒等。 */
+/** 汇总：总市值/持仓盈亏（浮动）/累计收益率/已实现盈亏/总收益。
+ *  已实现盈亏按流水 fundCode 统计（含已删除基金的流水，与现状逐笔遍历一致）；
+ *  总收益 = 持仓盈亏 + 已实现盈亏，数值与简单成本法（市值 − 净投入 + 分红）恒等。 */
 export function computeTotals(positions: FundPosition[], transactions: Transaction[]): Totals {
   let realizedIncome = 0
   for (const st of costBasisStates(transactions).values()) {
@@ -282,7 +282,7 @@ function weeklyReturnRows(series: TimePoint[]): (WeeklyReturn | null)[] {
   })
 }
 
-/** 收益统计时间序列：每个有净值记录的日期一个点；持仓成本/落袋收益按日期截断累计。 */
+/** 收益统计时间序列：每个有净值记录的日期一个点；持仓成本/已实现盈亏按日期截断累计。 */
 export function computeStatsSeries(
   funds: Fund[],
   transactions: Transaction[],
@@ -315,9 +315,9 @@ export function computeStatsSeries(
   })
 }
 
-/** 单基金收益走势：该基金每个有净值记录的日期一个点；持仓成本/落袋收益按日期截断
+/** 单基金收益走势：该基金每个有净值记录的日期一个点；持仓成本/已实现盈亏按日期截断
  * 推进（applyCostBasis，同日按 date, id 顺序——库内查询 ORDER BY date, id 同规则）；
- * 累计盈亏 = 市值 − 持仓成本 + 落袋收益；累计收益率 = 累计盈亏 / 当日持仓成本
+ * 累计盈亏 = 市值 − 持仓成本 + 已实现盈亏；累计收益率 = 累计盈亏 / 当日持仓成本
  * （持仓成本 ≤ 0 时为 null，曲线断开）。基金不存在或无净值记录返回空序列。 */
 export function computeFundSeries(
   fundCode: string,

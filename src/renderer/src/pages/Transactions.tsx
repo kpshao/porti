@@ -7,6 +7,7 @@ import TransactionTable from '../components/TransactionTable'
 import type { TxFilter, TxSort } from '../components/TransactionTable'
 import { formatMoney, formatNav, formatPercent, formatShares } from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
+import { pnlClass } from '../utils/pnl'
 
 /** 可疑行编辑值：键为 Excel 行号，值为用户修改后的字段 */
 type Edits = Record<string, Partial<Transaction>>
@@ -189,29 +190,27 @@ export default function Transactions(): React.JSX.Element {
           </div>
           <div className="stat">
             <div className="stat-label">持仓盈亏</div>
-            <div className={`stat-value ${txData.totals.totalPnl >= 0 ? 'positive' : 'negative'}`}>
+            <div className={`stat-value ${pnlClass(txData.totals.totalPnl)}`}>
               {formatMoney(txData.totals.totalPnl)}
             </div>
           </div>
           <div className="stat">
             <div className="stat-label">累计收益率</div>
-            <div className={`stat-value ${(txData.totals.totalReturnRate ?? 0) >= 0 ? 'positive' : 'negative'}`}>
+            <div className={`stat-value ${pnlClass(txData.totals.totalReturnRate)}`}>
               {formatPercent(txData.totals.totalReturnRate)}
             </div>
           </div>
           <div className="stat">
             <div className="stat-label">年化收益率</div>
-            <div
-              className={`stat-value ${
-                txData.annualized.total === null ? '' : txData.annualized.total >= 0 ? 'positive' : 'negative'
-              }`}
-            >
+            <div className={`stat-value ${pnlClass(txData.annualized.total)}`}>
               {formatPercent(txData.annualized.total)}
             </div>
           </div>
           <div className="stat">
-            <div className="stat-label">落袋收益</div>
-            <div className="stat-value">{formatMoney(txData.totals.realizedIncome)}</div>
+            <div className="stat-label">已实现盈亏</div>
+            <div className={`stat-value ${pnlClass(txData.totals.realizedIncome)}`}>
+              {formatMoney(txData.totals.realizedIncome)}
+            </div>
           </div>
         </div>
       )}
@@ -405,9 +404,7 @@ export default function Transactions(): React.JSX.Element {
                         <td>{formatShares(p.shares)}</td>
                         <td>{formatNav(p.latestNav)}</td>
                         <td>{formatMoney(p.marketValue)}</td>
-                        <td className={(p.pnl ?? 0) >= 0 ? 'positive' : 'negative'}>
-                          {formatMoney(p.pnl)}
-                        </td>
+                        <td className={pnlClass(p.pnl)}>{formatMoney(p.pnl)}</td>
                         <td>{formatPercent(p.pnlRatio)}</td>
                         <td>{match ? '一致 ✓' : '不一致 ✗'}</td>
                       </tr>

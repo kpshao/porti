@@ -12,7 +12,7 @@ export interface FundDetailEvent {
 export interface FundDetailData {
   position: FundPosition | null // 无持仓（基金不存在或份额为 0）时为 null
   annualized: number | null // 年化收益率（XIRR，不足 30 天/异常为空）
-  realizedIncome: number // 落袋收益 = Σ分红现金 + Σ卖出已实现收益
+  realizedIncome: number // 已实现盈亏 = Σ分红现金 + Σ卖出已实现收益
   series: FundSeriesPoint[] // 收益走势（已按范围过滤）
   events: FundDetailEvent[] // 该基金全部流水事件（图上仅标注有净值记录的日期）
 }

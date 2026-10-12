@@ -142,7 +142,7 @@ describe('新建流水后计算引擎输出与手算一致（ticket 验收）', 
     expect(positions[0].shares).toBe(100)
   })
 
-  it('卖出与分红现金：净投入成本、落袋收益实时重算', () => {
+  it('卖出与分红现金：净投入成本、已实现盈亏实时重算', () => {
     const db = freshDb()
     seedFund(db)
     createTransaction(db, buy) // 买入 1000 元 / 100 份
@@ -155,8 +155,8 @@ describe('新建流水后计算引擎输出与手算一致（ticket 验收）', 
     const positions = computePositions(selectFunds(db), selectTransactions(db), selectNavPoints(db))
     const totals = computeTotals(positions, selectTransactions(db))
 
-    // 手算：净投入 1000−400=600、份额 60、净值 11.5 → 市值 690、持仓盈亏 90、落袋收益 60
-    // 严格成本法：卖出 40/100 份 @11 恰为均价 10 的消耗成本 400，已实现收益 0，落袋仍 = 分红 60
+    // 手算：净投入 1000−400=600、份额 60、净值 11.5 → 市值 690、持仓盈亏 90、已实现盈亏 60
+    // 严格成本法：卖出 40/100 份 @11 恰为均价 10 的消耗成本 400，已实现收益 0，已实现盈亏仍 = 分红 60
     expect(positions[0].netCost).toBe(600)
     expect(positions[0].costBasis).toBe(600)
     expect(positions[0].shares).toBe(60)

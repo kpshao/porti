@@ -186,12 +186,12 @@ describe('卖出与分红现金', () => {
     expect(p.pnlRatio).toBeCloseTo(250 / 1000, 9)
   })
 
-  it('落袋收益 = 分红现金 + 卖出已实现收益，总收益数值与简单成本法恒等', () => {
+  it('已实现盈亏 = 分红现金 + 卖出已实现收益，总收益数值与简单成本法恒等', () => {
     const [p] = computePositions([fund], transactions, navPoints)
     const totals = computeTotals([p], transactions)
-    // 卖出已实现 = 1100 − 1000 = 100；落袋 = 100 + 分红 100 = 200
+    // 卖出已实现 = 1100 − 1000 = 100；已实现盈亏 = 100 + 分红 100 = 200
     expect(totals.realizedIncome).toBeCloseTo(200, 6)
-    // 总收益 = 浮动 250 + 落袋 200 = 450（简单成本法口径亦为 350 + 100 = 450）
+    // 总收益 = 浮动 250 + 已实现盈亏 200 = 450（简单成本法口径亦为 350 + 100 = 450）
     expect(totals.totalReturn).toBeCloseTo(450, 6)
     expect(totals.totalReturnRate).toBeCloseTo(450 / 900, 9)
     expect(p.pnl).toBeCloseTo(250, 6)
@@ -429,7 +429,7 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
     { fundCode: 'B', date: '2026-01-20', nav: 2.4, source: 'import' }
   ]
 
-  it('逐日累计：持仓成本/落袋收益按日期截断，累计收益 = 市值 − 持仓成本 + 落袋', () => {
+  it('逐日累计：持仓成本/已实现盈亏按日期截断，累计收益 = 市值 − 持仓成本 + 已实现盈亏', () => {
     const series = computeStatsSeries(funds, transactions, navPoints)
     expect(series.map((p) => p.date)).toEqual([
       '2026-01-01',
@@ -462,7 +462,7 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
       totalReturn: expect.closeTo(20, 6),
       weeklyReturn: { value: expect.closeTo(120, 6), baseDate: '2026-01-01' }
     })
-    // 01-15：市值 120+105；分红现金 01-12 起计入落袋；基准 01-05（差 10 天）：225 − 200 = 25
+    // 01-15：市值 120+105；分红现金 01-12 起计入已实现盈亏；基准 01-05（差 10 天）：225 − 200 = 25
     expect(series[3]).toMatchObject({
       totalMarketValue: expect.closeTo(225, 6),
       costBasis: 200,
@@ -470,7 +470,7 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
       totalReturn: expect.closeTo(45, 6),
       weeklyReturn: { value: expect.closeTo(25, 6), baseDate: '2026-01-05' }
     })
-    // 01-20：卖出 B 25/50 份（消耗成本 50，已实现 10）；持仓成本 150；落袋 20+10=30；基准 01-10：190 − 220 = −30
+    // 01-20：卖出 B 25/50 份（消耗成本 50，已实现 10）；持仓成本 150；已实现盈亏 20+10=30；基准 01-10：190 − 220 = −30
     expect(series[4]).toMatchObject({
       totalMarketValue: expect.closeTo(190, 6),
       costBasis: expect.closeTo(150, 6),
@@ -480,7 +480,7 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
     })
   })
 
-  it('最后一个点与引擎汇总口径一致（总收益 = 持仓盈亏 + 落袋收益）', () => {
+  it('最后一个点与引擎汇总口径一致（总收益 = 持仓盈亏 + 已实现盈亏）', () => {
     const series = computeStatsSeries(funds, transactions, navPoints)
     const positions = computePositions(funds, transactions, navPoints)
     const totals = computeTotals(positions, transactions)
@@ -515,7 +515,7 @@ describe('单基金收益走势（computeFundSeries，手算黄金值）', () =>
     })
   })
 
-  it('买入 → 部分卖出 → 分红现金：移动加权成本与落袋收益逐日手算一致', () => {
+  it('买入 → 部分卖出 → 分红现金：移动加权成本与已实现盈亏逐日手算一致', () => {
     const txs: TransactionRow[] = [
       { id: 1, date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null },
       { id: 2, date: '2026-01-02', type: '卖出', fundCode: 'A', amount: -750, shares: -500, nav: 1.5, fee: 0, note: null },
@@ -534,7 +534,7 @@ describe('单基金收益走势（computeFundSeries，手算黄金值）', () =>
       totalReturn: expect.closeTo(500, 6),
       totalReturnRate: expect.closeTo(1, 9)
     })
-    // 01-03：落袋 = 250 + 分红现金 100 = 350
+    // 01-03：已实现盈亏 = 250 + 分红现金 100 = 350
     expect(series[2]).toMatchObject({
       marketValue: expect.closeTo(800, 6),
       costBasis: expect.closeTo(500, 6),
@@ -559,7 +559,7 @@ describe('单基金收益走势（computeFundSeries，手算黄金值）', () =>
     })
   })
 
-  it('全部卖出后：持仓成本为 0，收益率为 null、累计盈亏为落袋平台', () => {
+  it('全部卖出后：持仓成本为 0，收益率为 null、累计盈亏为已实现盈亏平台', () => {
     const txs: TransactionRow[] = [
       { id: 1, date: '2026-01-01', type: '买入', fundCode: 'A', amount: 1000, shares: 1000, nav: 1, fee: 0, note: null },
       { id: 2, date: '2026-01-02', type: '卖出', fundCode: 'A', amount: -1500, shares: -1000, nav: 1.5, fee: 0, note: null }
@@ -690,7 +690,7 @@ describe('严格成本法 — 移动加权平均', () => {
     expect(totals.totalReturn).toBeCloseTo(50, 6) // 简单成本法口径：195 − 145 = 50
   })
 
-  it('部分卖出亏损：落袋收益含负数', () => {
+  it('部分卖出亏损：已实现盈亏含负数', () => {
     const txs: Transaction[] = [
       { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
       { date: '2026-02-01', type: '卖出', fundCode: 'A', amount: -32, shares: -40, nav: 0.8, fee: 0, note: null }
@@ -721,7 +721,7 @@ describe('严格成本法 — 移动加权平均', () => {
     expect(totals.totalReturn).toBeCloseTo(32, 6) // 简单成本法口径：66 − 34 = 32
   })
 
-  it('清仓：份额与持仓成本归零，盈亏与盈亏比例为 0/null，已实现收益全额落袋', () => {
+  it('清仓：份额与持仓成本归零，盈亏与盈亏比例为 0/null，已实现收益全额计入已实现盈亏', () => {
     const txs: Transaction[] = [
       { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
       { date: '2026-02-01', type: '卖出', fundCode: 'A', amount: -150, shares: -100, nav: 1.5, fee: 0, note: null }
@@ -795,7 +795,7 @@ describe('严格成本法 — 移动加权平均', () => {
     expect(st.realizedGain).toBe(60)
   })
 
-  it('货基资金池全流程：落袋一次即锁定，资金池中转不冲减，货基一视同仁', () => {
+  it('货基资金池全流程：已实现盈亏一次锁定，资金池中转不冲减，货基一视同仁', () => {
     const funds = [fund('A'), fund('007824', '流动性'), fund('B')]
     const txs: Transaction[] = [
       { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
@@ -824,7 +824,7 @@ describe('严格成本法 — 移动加权平均', () => {
     expect(byCode.get('007824')!.pnl).toBe(0)
     expect(byCode.get('B')!.pnl).toBe(0)
     const totals = computeTotals(positions, txs)
-    // 落袋 = 卖出已实现 20 + 分红 10 = 30；浮动 = 30；总收益 = 60（与简单成本法恒等）
+    // 已实现盈亏 = 卖出已实现 20 + 分红 10 = 30；浮动 = 30；总收益 = 60（与简单成本法恒等）
     expect(totals.realizedIncome).toBeCloseTo(30, 6)
     expect(totals.totalPnl).toBeCloseTo(30, 6)
     expect(totals.totalReturn).toBeCloseTo(60, 6)

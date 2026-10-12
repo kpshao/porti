@@ -35,7 +35,7 @@ function insertTx(db: Database.Database, date: string, type: string, code: strin
  *  手算基准（独立于实现）：
  *  - 000001：净投入 3400、份额 300、最新净值 12.5 → 市值 3750、盈亏 350、盈亏比例 10.2941…%
  *  - 002065：净投入 20000、份额 18500、最新净值 1.234567 → 市值 22839.4895、盈亏 2839.4895、盈亏比例 14.1974…%
- *  - 汇总：总资产 26589.4895、总盈亏 3189.4895、总收益率 13.6302…%、落袋收益 60、总收益 3249.4895
+ *  - 汇总：总资产 26589.4895、总盈亏 3189.4895、总收益率 13.6302…%、已实现盈亏 60、总收益 3249.4895
  */
 function seedDb(db: Database.Database): Database.Database {
   insertFund(db, '000001', '测试权益', '权益', 100000)
@@ -102,7 +102,7 @@ describe('buildExportData — 概览表', () => {
     expect(summary[1]).toEqual(['持仓盈亏', num(3189.49, '0.00')])
     // 总收益率 = 总收益/净投入成本 = 3249.49/23400（含分红现金 60 进分子）
     expect(summary[2]).toEqual(['总收益率(%)', num(13.89, '0.00')])
-    expect(summary[3]).toEqual(['落袋收益', num(60, '0.00')])
+    expect(summary[3]).toEqual(['已实现盈亏', num(60, '0.00')])
     expect(summary[4]).toEqual(['总收益', num(3249.49, '0.00')])
     expect(summary[5]).toEqual(['净投入成本', num(23400, '0.00')])
   })

@@ -14,12 +14,7 @@ import {
 } from '../components/charts'
 import { formatMoney, formatPercent } from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
-
-/** 盈亏着色：null（无净值）不着色，正红负绿（中国习惯） */
-function pnlClass(n: number | null | undefined): string {
-  if (n === null || n === undefined) return ''
-  return n >= 0 ? 'positive' : 'negative'
-}
+import { pnlClass } from '../utils/pnl'
 
 export default function Stats(): React.JSX.Element {
   const [data, setData] = useState<StatsData | null>(null)
@@ -139,7 +134,7 @@ export default function Stats(): React.JSX.Element {
           <div className="card">
             <h2>累计收益走势</h2>
             <div ref={returnRef} className="chart chart-lg" />
-            <p className="muted">累计收益 = 总市值 − 持仓成本 + 落袋收益（分红现金 + 卖出已实现收益），与概览页总收益同口径。</p>
+            <p className="muted">累计收益 = 总市值 − 持仓成本 + 已实现盈亏（分红现金 + 卖出已实现收益），与概览页总收益同口径。</p>
           </div>
 
           <div className="card">

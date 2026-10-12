@@ -3,6 +3,7 @@ import type { OverviewData } from '../../../main/overviewTypes'
 import FundDetail from '../components/FundDetail'
 import { formatMoney, formatNav, formatPercent, formatShares } from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
+import { pnlClass } from '../utils/pnl'
 
 /** 行内编辑暂存值：键为基金代码（目标金额）或大类名（目标比例） */
 type Edits = Record<string, string>
@@ -10,12 +11,6 @@ type Edits = Record<string, string>
 /** 目标比例输入以百分比显示与录入（界面约定：比例保留 2 位） */
 function ratioToPercentText(ratio: number): string {
   return (ratio * 100).toFixed(2)
-}
-
-/** 盈亏类着色：null（无净值）不着色，正红负绿（中国习惯） */
-function pnlClass(n: number | null | undefined): string {
-  if (n === null || n === undefined) return ''
-  return n >= 0 ? 'positive' : 'negative'
 }
 
 /** 行内数字编辑框：失焦或回车提交（概览页目标金额/目标比例共用） */
@@ -158,8 +153,10 @@ export default function Overview(): React.JSX.Element {
             </div>
           </div>
           <div className="stat">
-            <div className="stat-label">落袋收益</div>
-            <div className="stat-value">{formatMoney(data.totals.realizedIncome)}</div>
+            <div className="stat-label">已实现盈亏</div>
+            <div className={`stat-value ${pnlClass(data.totals.realizedIncome)}`}>
+              {formatMoney(data.totals.realizedIncome)}
+            </div>
           </div>
         </div>
       )}
