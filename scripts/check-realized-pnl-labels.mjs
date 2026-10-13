@@ -4,7 +4,7 @@
 // 用法：node scripts/check-realized-pnl-labels.mjs [--port 9333]
 //
 // 流程：npm run build -> 复制真实 porti.db 到临时 profile -> 带防节流旗标启动
-// Electron -> CDP 逐页断言：概览 / 交易流水卡片区的标签序列为「已实现盈亏」且按
+// Electron -> CDP 逐页断言：概览（两行版式）/ 交易流水卡片区都含「已实现盈亏」且按
 // 正负着色、收益统计图注同步、基金详情卡片着色与同屏「持仓盈亏」同口径；并断言
 // 全应用渲染文本中不再出现旧词「落袋」。
 //
@@ -169,8 +169,12 @@ const readCardArea = () =>
     return {
       stats: [...card.querySelectorAll('.stat')].map((s) => {
         const valueEl = s.querySelector('.stat-value')
+        const labelEl = s.querySelector('.stat-label')
+        // 标签文本剔掉悬停标记（.hint-mark 的 ⓘ 是装饰，不是标签的一部分）
+        const clone = labelEl?.cloneNode(true) ?? null
+        clone?.querySelectorAll('.hint-mark').forEach((m) => m.remove())
         return {
-          label: s.querySelector('.stat-label')?.textContent?.trim() ?? '',
+          label: clone?.textContent?.trim() ?? '',
           value: valueEl?.textContent?.trim() ?? '',
           classes: [...(valueEl?.classList ?? [])]
         }
@@ -197,7 +201,11 @@ const assertColored = (where, stat) => {
   console.log(`  ${where}「${stat.label}」= ${stat.value} → ${actual} ✓`)
 }
 
-const LABELS = ['总资产', '持仓盈亏', '累计收益率', '年化收益率', '已实现盈亏']
+/** 交易流水页仍是单行卡片区（概览页已改两行，序列见下） */
+const TX_LABELS = ['总资产', '持仓盈亏', '累计收益率', '年化收益率', '已实现盈亏']
+/** 概览页两行版式后的标签序列（第一行结果 + 第二行分解，见 issues/03-overview-total-return-card.md）；
+ *  与 scripts/check-overview-total-return-card.mjs 的 ROW1+ROW2 是同一份真相，版式改动请两处同步。 */
+const OVERVIEW_LABELS = ['总资产', '总收益', '累计收益率', '年化收益率', '持仓盈亏', '已实现盈亏']
 
 const assertNoLegacyTerm = (where, text) => {
   if (text.includes('落袋')) {
@@ -218,8 +226,8 @@ try {
   }
   console.log('概览页：')
   const labels = overview.stats.map((s) => s.label)
-  if (JSON.stringify(labels) !== JSON.stringify(LABELS)) {
-    throw new Error(`卡片标签序列不符：${labels.join(' / ')}（期望 ${LABELS.join(' / ')}）`)
+  if (JSON.stringify(labels) !== JSON.stringify(OVERVIEW_LABELS)) {
+    throw new Error(`卡片标签序列不符：${labels.join(' / ')}（期望 ${OVERVIEW_LABELS.join(' / ')}）`)
   }
   console.log(`  卡片标签序列: ${labels.join(' / ')} ✓`)
   assertColored('概览', overview.stats.find((s) => s.label === '已实现盈亏'))
@@ -240,8 +248,8 @@ try {
   if (tx !== null) {
     console.log('交易流水页：')
     const txLabels = tx.stats.map((s) => s.label)
-    if (JSON.stringify(txLabels) !== JSON.stringify(LABELS)) {
-      throw new Error(`卡片标签序列不符：${txLabels.join(' / ')}（期望 ${LABELS.join(' / ')}）`)
+    if (JSON.stringify(txLabels) !== JSON.stringify(TX_LABELS)) {
+      throw new Error(`卡片标签序列不符：${txLabels.join(' / ')}（期望 ${TX_LABELS.join(' / ')}）`)
     }
     console.log(`  卡片标签序列: ${txLabels.join(' / ')} ✓`)
     assertColored('流水', tx.stats.find((s) => s.label === '已实现盈亏'))

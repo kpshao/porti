@@ -195,10 +195,45 @@ body {
   flex-wrap: wrap;
 }
 
+/* 概览页两行版式：第一行「结果」、第二行「分解」，每行一个 .stat-row（交易流水页仍是单行） */
+.summary-card-rows {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stat-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+/* 分解行：与结果行用一条细线隔开，运算符与数值底对齐，间距收到「一眼读成一个等式」的宽度 */
+.stat-row-parts {
+  align-items: flex-end;
+  gap: 14px;
+  border-top: 1px solid #e5e6eb;
+  padding-top: 12px;
+}
+
+/* 加法关系的运算符（+ / = 总收益）：中性灰，不参与着色 */
+.stat-op {
+  color: #86909c;
+  font-size: 16px;
+  padding-bottom: 3px;
+}
+
 .stat-label {
   color: #86909c;
   font-size: 13px;
   margin-bottom: 4px;
+}
+
+/* 悬停出说明的标记（title 承载文案，故光标给 help） */
+.hint-mark {
+  margin-left: 4px;
+  font-size: 12px;
+  cursor: help;
 }
 
 .stat-value {

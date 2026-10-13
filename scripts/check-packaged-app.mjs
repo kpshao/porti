@@ -314,7 +314,12 @@ await clickNav('概览')
 const stats = await evaluate(`(() => {
   const out = {}
   for (const s of document.querySelectorAll('.stat')) {
-    const label = s.querySelector('.stat-label')?.textContent
+    const labelEl = s.querySelector('.stat-label')
+    if (!labelEl) continue
+    // 标签文本剔掉悬停标记（.hint-mark 的 ⓘ 是装饰，不是标签的一部分）
+    const clone = labelEl.cloneNode(true)
+    clone.querySelectorAll('.hint-mark').forEach((m) => m.remove())
+    const label = clone.textContent.trim()
     if (label) out[label] = s.querySelector('.stat-value')?.textContent ?? ''
   }
   return out
@@ -322,7 +327,8 @@ const stats = await evaluate(`(() => {
 const money = (s) => Number(String(s).replace(/,/g, ''))
 const checks = [
   ['总资产', (v) => Math.abs(money(v) - GOLDEN.totalAssets) <= 0.01, '775,962.32'],
-  ['总盈亏', (v) => Math.abs(money(v) - GOLDEN.totalPnl) <= 0.01, '-8,351.48'],
+  // 卡片标签：界面上是「持仓盈亏」（GOLDEN.totalPnl 就是它），旧稿写作「总盈亏」
+  ['持仓盈亏', (v) => Math.abs(money(v) - GOLDEN.totalPnl) <= 0.01, '-8,351.48'],
   ['累计收益率', (v) => v === GOLDEN.totalReturnRate, GOLDEN.totalReturnRate]
 ]
 for (const [label, ok, expect] of checks) {
