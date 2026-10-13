@@ -48,6 +48,7 @@ export default function Overview(): React.JSX.Element {
   const [busy, setBusy] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<{ code: string; name: string } | null>(null)
+  const [showClosed, setShowClosed] = useState<boolean>(false)
 
   const reload = (): void => {
     window.api.overviewData().then(setData).catch((e) => setError(ipcErrorMessage(e)))
@@ -58,6 +59,11 @@ export default function Overview(): React.JSX.Element {
   }, [])
 
   const hasData = data !== null && data.funds.length > 0
+
+  // 已清仓持仓默认不显示（它们是数据，不是仓位）：开关打开后作为表尾一组出现，仍可点进基金详情
+  const closedGroup = data?.closedGroup ?? null
+  const heldGroups = data?.positionGroups ?? []
+  const groupsToShow = showClosed && closedGroup !== null ? [...heldGroups, closedGroup] : heldGroups
 
   /** 提交目标金额：空 = 清空；非数字本地回退，范围校验由服务层把关（中文错误回显） */
   const commitTargetAmount = (code: string): void => {
@@ -163,80 +169,99 @@ export default function Overview(): React.JSX.Element {
 
       {hasData && (
         <div className="card">
-          <h2>持仓明细</h2>
-          <table className="table table-positions">
-            <thead>
-              <tr>
-                <th>大类</th>
-                <th>大类市值</th>
-                <th>代码</th>
-                <th>名称</th>
-                <th>份额</th>
-                <th>持仓成本</th>
-                <th>最新净值</th>
-                <th>市值</th>
-                <th>持仓盈亏</th>
-                <th>盈亏比例</th>
-                <th>年化收益率</th>
-                <th>目标金额（元）</th>
-              </tr>
-            </thead>
-            {/* 每个大类一个 tbody：首两列（大类 / 大类市值）只在组内第一行渲染并 rowSpan 合并到整组 */}
-            {data.positionGroups.map((group) => (
-              <tbody key={group.category}>
-                {group.positions.map((p, rowIndex) => {
-                  const editValue = amountEdits[p.fundCode]
-                  const inputValue =
-                    editValue !== undefined ? editValue : p.targetAmount === null ? '' : String(p.targetAmount)
-                  const annualized = data.annualized.perFund[p.fundCode]
-                  return (
-                    <tr key={p.fundCode}>
-                      {rowIndex === 0 && (
-                        <>
-                          <td className="group-cell" rowSpan={group.positions.length}>
-                            {group.category}
-                          </td>
-                          <td className="group-cell" rowSpan={group.positions.length}>
-                            {formatMoney(group.marketValue)}
-                          </td>
-                        </>
-                      )}
-                      <td>{p.fundCode}</td>
-                      <td>
-                        <button
-                          className="fund-link"
-                          onClick={() => setDetail({ code: p.fundCode, name: p.name })}
-                        >
-                          {p.name}
-                        </button>
-                      </td>
-                      <td>{formatShares(p.shares)}</td>
-                      <td>{formatMoney(p.costBasis)}</td>
-                      <td>{formatNav(p.latestNav)}</td>
-                      <td>{formatMoney(p.marketValue)}</td>
-                      <td className={pnlClass(p.pnl)}>{formatMoney(p.pnl)}</td>
-                      <td className={pnlClass(p.pnlRatio)}>{formatPercent(p.pnlRatio)}</td>
-                      <td className={pnlClass(annualized)}>{formatPercent(annualized)}</td>
-                      <td>
-                        <InlineNumberEdit
-                          value={inputValue}
-                          disabled={busy}
-                          step="any"
-                          min="0"
-                          onChange={(text) =>
-                            setAmountEdits((prev) => ({ ...prev, [p.fundCode]: text }))
-                          }
-                          onCommit={() => commitTargetAmount(p.fundCode)}
-                        />
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            ))}
-          </table>
+          <div className="card-head">
+            <h2>持仓明细</h2>
+            {closedGroup !== null && (
+              <button
+                className={showClosed ? 'btn btn-compact btn-primary' : 'btn btn-compact'}
+                onClick={() => setShowClosed((v) => !v)}
+              >
+                显示已清仓
+              </button>
+            )}
+          </div>
+          {groupsToShow.length === 0 ? (
+            <p className="muted">
+              当前无在持持仓
+              {closedGroup !== null ? `（已清仓 ${closedGroup.positions.length} 只，可打开上方开关找回）` : ''}。
+            </p>
+          ) : (
+            <table className="table table-positions">
+              <thead>
+                <tr>
+                  <th>大类</th>
+                  <th>大类市值</th>
+                  <th>代码</th>
+                  <th>名称</th>
+                  <th>份额</th>
+                  <th>持仓成本</th>
+                  <th>最新净值</th>
+                  <th>市值</th>
+                  <th>持仓盈亏</th>
+                  <th>盈亏比例</th>
+                  <th>年化收益率</th>
+                  <th>目标金额（元）</th>
+                </tr>
+              </thead>
+              {/* 每个大类一个 tbody：首两列（大类 / 大类市值）只在组内第一行渲染并 rowSpan 合并到整组 */}
+              {groupsToShow.map((group) => (
+                <tbody key={group.category}>
+                  {group.positions.map((p, rowIndex) => {
+                    const editValue = amountEdits[p.fundCode]
+                    const inputValue =
+                      editValue !== undefined ? editValue : p.targetAmount === null ? '' : String(p.targetAmount)
+                    const annualized = data.annualized.perFund[p.fundCode]
+                    return (
+                      <tr key={p.fundCode}>
+                        {rowIndex === 0 && (
+                          <>
+                            <td className="group-cell" rowSpan={group.positions.length}>
+                              {group.category}
+                            </td>
+                            <td className="group-cell" rowSpan={group.positions.length}>
+                              {formatMoney(group.marketValue)}
+                            </td>
+                          </>
+                        )}
+                        <td>{p.fundCode}</td>
+                        <td>
+                          <button
+                            className="fund-link"
+                            onClick={() => setDetail({ code: p.fundCode, name: p.name })}
+                          >
+                            {p.name}
+                          </button>
+                        </td>
+                        <td>{formatShares(p.shares)}</td>
+                        <td>{formatMoney(p.costBasis)}</td>
+                        <td>{formatNav(p.latestNav)}</td>
+                        <td>{formatMoney(p.marketValue)}</td>
+                        <td className={pnlClass(p.pnl)}>{formatMoney(p.pnl)}</td>
+                        <td className={pnlClass(p.pnlRatio)}>{formatPercent(p.pnlRatio)}</td>
+                        <td className={pnlClass(annualized)}>{formatPercent(annualized)}</td>
+                        <td>
+                          <InlineNumberEdit
+                            value={inputValue}
+                            disabled={busy}
+                            step="any"
+                            min="0"
+                            onChange={(text) =>
+                              setAmountEdits((prev) => ({ ...prev, [p.fundCode]: text }))
+                            }
+                            onCommit={() => commitTargetAmount(p.fundCode)}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              ))}
+            </table>
+          )}
           <p className="muted">
             目标金额可直接在行内修改（留空清空），失焦或回车后保存，配置对比实时更新；点击基金名称可查看基金详情与收益走势。
+            {closedGroup !== null &&
+              '已清仓基金（交易过后份额归零）默认不显示——它们是数据不是仓位，需要回顾战绩时用上方开关找回。'}
           </p>
         </div>
       )}

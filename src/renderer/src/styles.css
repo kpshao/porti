@@ -111,6 +111,19 @@ body {
   margin: 16px 0 8px;
 }
 
+/* 卡片标题行：标题与行内控件（如持仓明细的「显示已清仓」开关）同排，控件靠右 */
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.card-head h2 {
+  margin-bottom: 0;
+}
+
 .muted {
   color: #86909c;
   font-size: 13px;

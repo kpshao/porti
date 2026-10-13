@@ -72,7 +72,7 @@ export interface FundPosition {
 
 /** 概览持仓明细的大类分组：组头 + 组内明细 */
 export interface PositionGroup {
-  category: string // 组名：CATEGORIES 之一，或兜底组「其他」
+  category: string // 组名：CATEGORIES 之一、兜底组「其他」，或表尾组「已清仓」
   marketValue: number | null // 组头合计（口径见 groupPositionsByCategory）；组内全无净值时为 null
   positions: FundPosition[] // 组内明细，按基金代码升序
 }
@@ -89,9 +89,9 @@ export interface Totals {
 export interface CategoryComparisonRow {
   category: string
   targetRatio: number
-  investedRatio: number | null // 实际投入比例 = 大类净投入 / 总净投入
+  investedRatio: number | null // 实际投入比例 = 大类在持持仓（份额 > 0）净投入 / 全部在持持仓净投入
   marketRatio: number | null // 实际市值占比 = 大类市值 / 总市值
-  deviation: number | null // 偏离 = 实际市值占比 − 目标比例
+  deviation: number | null // 偏离 = 实际市值占比 − 目标比例；该大类已清空（曾有流水、现无份额）或市值占比无定义时为 null
 }
 
 export interface TimePoint {

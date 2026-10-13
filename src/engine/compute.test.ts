@@ -22,7 +22,9 @@ import {
   applyCostBasis,
   costBasisStates,
   groupPositionsByCategory,
+  groupClosedPositions,
   OTHER_CATEGORY,
+  CLOSED_CATEGORY,
   xirr
 } from './compute'
 
@@ -236,10 +238,11 @@ describe('边界情况', () => {
 
 describe('大类配置对比', () => {
   it('投入比例/市值占比/偏离计算正确', () => {
+    // 在持（份额 > 0）——投入比例只统计这类持仓
     const positions = [
-      { fundCode: 'A', name: 'A', category: '固守+', fundType: null, targetAmount: null, invested: 300, redeemed: 0, netCost: 300, costBasis: 300, shares: 0, latestNav: null, latestNavDate: null, marketValue: 330, pnl: 30, pnlRatio: 0.1 },
-      { fundCode: 'B', name: 'B', category: '权益', fundType: null, targetAmount: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 0, latestNav: null, latestNavDate: null, marketValue: 110, pnl: 10, pnlRatio: 0.1 },
-      { fundCode: 'C', name: 'C', category: '黄金', fundType: null, targetAmount: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 0, latestNav: null, latestNavDate: null, marketValue: 100, pnl: 0, pnlRatio: 0 }
+      { fundCode: 'A', name: 'A', category: '固守+', fundType: null, targetAmount: null, invested: 300, redeemed: 0, netCost: 300, costBasis: 300, shares: 300, latestNav: null, latestNavDate: null, marketValue: 330, pnl: 30, pnlRatio: 0.1 },
+      { fundCode: 'B', name: 'B', category: '权益', fundType: null, targetAmount: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 110, pnl: 10, pnlRatio: 0.1 },
+      { fundCode: 'C', name: 'C', category: '黄金', fundType: null, targetAmount: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 100, pnl: 0, pnlRatio: 0 }
     ]
     const targets: CategoryTarget[] = [
       { category: '固守+', targetRatio: 0.25 },
@@ -271,6 +274,73 @@ describe('大类配置对比', () => {
     const gold = byCat.get('黄金')!
     expect(gold.targetRatio).toBe(0.05)
     expect(rows.length).toBe(5)
+  })
+
+  it('大类清仓后：投入比例记 0、偏离为 null；分母只含仍在持的持仓', () => {
+    // 真实场景：000217 华安黄金ETF联接C 清仓（净投入 10358.20 残留），黄金大类只剩它
+    const clearedGold: FundPosition = {
+      ...mkPosition('000217', '黄金', 0, 0),
+      invested: 59050,
+      redeemed: 48691.8,
+      netCost: 10358.2
+    }
+    const heldEquity: FundPosition = {
+      ...mkPosition('512890', '权益', 12000),
+      invested: 10000,
+      netCost: 10000,
+      costBasis: 10000
+    }
+    const targets: CategoryTarget[] = [
+      { category: '纯债', targetRatio: 0.45 },
+      { category: '权益', targetRatio: 0.2 },
+      { category: '黄金', targetRatio: 0.05 }
+    ]
+    const rows = computeCategoryComparison([clearedGold, heldEquity], targets)
+    const byCat = new Map(rows.map((r) => [r.category, r]))
+
+    // 清仓大类：投入比例 0（不再凭空占 10358.20 / 20358.20 = 50.88%）
+    const gold = byCat.get('黄金')!
+    expect(gold.investedRatio).toBe(0)
+    expect(gold.marketRatio).toBe(0)
+    expect(gold.deviation).toBeNull() // 已清空 → 不再提示低配
+
+    // 分母只含仍在持的持仓（10000，而非 20358.20）
+    const equity = byCat.get('权益')!
+    expect(equity.investedRatio).toBeCloseTo(1, 9)
+    expect(equity.marketRatio).toBeCloseTo(1, 9)
+    expect(equity.deviation).toBeCloseTo(0.8, 9)
+
+    // 从未配置的大类：口径不变，仍是 −目标比例（提示尚未建立该仓位）
+    expect(byCat.get('纯债')!.investedRatio).toBe(0)
+    expect(byCat.get('纯债')!.deviation).toBeCloseTo(-0.45, 9)
+  })
+
+  it('混合场景：部分大类清仓时分母只累加在持持仓的净投入', () => {
+    const positions: FundPosition[] = [
+      { ...mkPosition('100001', '固守+', 30000), invested: 30000, netCost: 30000, costBasis: 30000 },
+      { ...mkPosition('200001', '权益', 8000), invested: 10000, netCost: 10000, costBasis: 10000 },
+      // 两只已清仓基金：净投入残留分别 5000 / 8000，均不得进入分母
+      { ...mkPosition('400001', '黄金', 0, 0), invested: 20000, redeemed: 15000, netCost: 5000 },
+      { ...mkPosition('500001', '流动性', 0, 0), invested: 8000, redeemed: 8000, netCost: 0 }
+    ]
+    const targets: CategoryTarget[] = [
+      { category: '固守+', targetRatio: 0.8 },
+      { category: '权益', targetRatio: 0.2 },
+      { category: '黄金', targetRatio: 0 },
+      { category: '流动性', targetRatio: 0 }
+    ]
+    const rows = computeCategoryComparison(positions, targets)
+    const byCat = new Map(rows.map((r) => [r.category, r]))
+
+    // 分母 = 30000 + 10000 = 40000（不含清仓残留的 5000）
+    expect(byCat.get('固守+')!.investedRatio).toBeCloseTo(0.75, 9)
+    expect(byCat.get('权益')!.investedRatio).toBeCloseTo(0.25, 9)
+    // 净资产全部赎回（净投入恰好为 0）的已清仓大类：比例 0，偏离亦为 null
+    expect(byCat.get('流动性')!.investedRatio).toBe(0)
+    expect(byCat.get('流动性')!.deviation).toBeNull()
+    expect(byCat.get('黄金')!.deviation).toBeNull()
+    // 市值占比的分母不受清仓影响（清仓持仓市值恒为 0）
+    expect(byCat.get('固守+')!.marketRatio).toBeCloseTo(30000 / 38000, 9)
   })
 
   it('行序按 CATEGORIES 声明顺序；闭集之外的类目排在其后且保持并集内相对次序', () => {
@@ -351,6 +421,14 @@ describe('持仓明细按大类分组', () => {
     expect(groups[0].marketValue).toBeNull()
   })
 
+  it('负份额（超卖数据错误）也不留在在持组里', () => {
+    const groups = groupPositionsByCategory([
+      mkPosition('200001', '权益', 100),
+      mkPosition('400002', '黄金', -1200, -100) // 超卖：份额为负，市值随之为负
+    ])
+    expect(groups.map((g) => g.category)).toEqual(['权益'])
+  })
+
   it('各组头合计之和 == 总资产（含已清仓持仓时为同一口径）', () => {
     const positions = [
       mkPosition('100001', '固守+', 500),
@@ -361,6 +439,41 @@ describe('持仓明细按大类分组', () => {
     const groups = groupPositionsByCategory(positions)
     const sum = groups.reduce((s, g) => s + (g.marketValue ?? 0), 0)
     expect(sum).toBeCloseTo(computeTotals(positions, []).totalAssets, 9)
+  })
+})
+
+describe('已清仓分组（持仓明细表尾单独一组）', () => {
+  it('无已清仓持仓时为空；从未建仓（无流水、份额 0）不算已清仓', () => {
+    expect(groupClosedPositions([mkPosition('200001', '权益', 100)])).toBeNull()
+    expect(groupClosedPositions([])).toBeNull()
+    expect(groupClosedPositions([mkPosition('000385', '固守+', 0, 0)])).toBeNull()
+  })
+
+  it('交易过且份额 ≤ 0 的持仓收进一组：组名「已清仓」，组内按代码升序，组头无市值口径', () => {
+    const group = groupClosedPositions([
+      { ...mkPosition('400002', '黄金', 0, 0), invested: 59050, redeemed: 48691.8 }, // 清仓
+      mkPosition('200001', '权益', 100), // 在持，不进来
+      { ...mkPosition('400001', '固守+', -50, -10), invested: 1000, redeemed: 1100 } // 超卖（负份额）也算已清仓
+    ])
+    expect(group).not.toBeNull()
+    expect(group!.category).toBe(CLOSED_CATEGORY)
+    expect(group!.positions.map((p) => p.fundCode)).toEqual(['400001', '400002'])
+    expect(group!.marketValue).toBeNull() // 组头「大类市值」显示「—」：无在持份额即无市值口径
+  })
+
+  it('与在持分组互补：并集 = 有过流水的持仓，交集为空', () => {
+    const positions = [
+      mkPosition('200001', '权益', 100),
+      mkPosition('100001', '固守+', 500),
+      { ...mkPosition('400001', '黄金', 0, 0), invested: 20000, redeemed: 15000 },
+      { ...mkPosition('400002', '黄金', -1200, -100), invested: 5000, redeemed: 6200 },
+      mkPosition('000385', '固守+', 0, 0) // 从未建仓：哪边都不在
+    ]
+    const held = groupPositionsByCategory(positions).flatMap((g) => g.positions)
+    const closed = groupClosedPositions(positions)!.positions
+    const all = [...held, ...closed].map((p) => p.fundCode).sort()
+    expect(all).toEqual(['100001', '200001', '400001', '400002'])
+    expect(held.filter((p) => closed.includes(p))).toEqual([])
   })
 })
 

@@ -14,6 +14,7 @@ import {
   computeTotals,
   costBasisStates,
   filterFundSeriesRange,
+  groupClosedPositions,
   groupPositionsByCategory
 } from '../engine'
 import type {
@@ -128,7 +129,14 @@ export function registerDataIpc(): void {
   ipcMain.handle('overview:data', (): OverviewData => {
     const db = getDb()
     if (!hasAnyData(db)) {
-      return { funds: [], positionGroups: [], totals: null, comparison: [], annualized: emptyAnnualized() }
+      return {
+        funds: [],
+        positionGroups: [],
+        closedGroup: null,
+        totals: null,
+        comparison: [],
+        annualized: emptyAnnualized()
+      }
     }
     const funds = selectFunds(db)
     const transactions = selectTransactions(db)
@@ -138,6 +146,7 @@ export function registerDataIpc(): void {
     return {
       funds,
       positionGroups: groupPositionsByCategory(positions),
+      closedGroup: groupClosedPositions(positions),
       totals: computeTotals(positions, transactions),
       comparison,
       annualized: computeAnnualizedData(transactions, navPoints)

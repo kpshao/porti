@@ -125,6 +125,24 @@ describe('buildExportData — 概览表', () => {
     ])
   })
 
+  it('持仓明细只列在持持仓：已清仓与超卖负份额都不列（与概览页同一口径）', () => {
+    const db = seedDb(freshDb())
+    // 000217：买入 1000 份后全部卖出 → 已清仓（份额归零，净值仍在）
+    insertFund(db, '000217', '测试黄金', '黄金', null)
+    insertTx(db, '2026-05-01', '买入', '000217', 5000, 1000, 5, null, null)
+    insertTx(db, '2026-05-20', '卖出', '000217', -6000, -1000, 6, null, null)
+    db.prepare('INSERT INTO nav_history (fund_code, date, nav, source) VALUES (?,?,?,?)').run('000217', '2026-05-20', 6, 'manual')
+    // 999999：卖出多于买入 → 超卖（份额为负，数据错误）
+    insertFund(db, '999999', '测试超卖', '权益', null)
+    insertTx(db, '2026-06-01', '买入', '999999', 1000, 100, 10, null, null)
+    insertTx(db, '2026-06-02', '卖出', '999999', -2200, -200, 11, null, null)
+    db.prepare('INSERT INTO nav_history (fund_code, date, nav, source) VALUES (?,?,?,?)').run('999999', '2026-06-02', 11, 'manual')
+
+    const ov = sheetByName(buildExportData(db), '概览')
+    expect(ov.rows.slice(10, 12).map((r) => r[0])).toEqual(['000001', '002065'])
+    expect(ov.rows[12]).toEqual([]) // 明细段后紧跟空行 → 清仓与超卖都没混进来
+  })
+
   it('大类配置对比：目标/投入/市值/偏离均为百分比数字（手算基准）', () => {
     const sheets = buildExportData(seedDb(freshDb()))
     const ov = sheetByName(sheets, '概览')

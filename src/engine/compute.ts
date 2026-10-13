@@ -186,13 +186,20 @@ function groupMarketValue(rows: FundPosition[]): number | null {
   return rows.reduce((sum, p) => sum + (p.marketValue ?? 0), 0)
 }
 
+/** 是否在持：份额 > 0 才算是一个仓位。份额 ≤ 0 的是已清仓（归零）或超卖（负份额数据错误），
+ *  两者都不该出现在按大类分的持仓里，也不该参与投入比例。 */
+function isHeld(p: FundPosition): boolean {
+  return p.shares > 0
+}
+
 /** 持仓明细的大类分组（概览页表格的组织方式）。规则：
- *  只纳入仍有份额的持仓（shares !== 0，与导出、界面既有口径一致），过滤后为空的大类不产生组；
+ *  只纳入在持持仓（见 isHeld），过滤后为空的大类不产生组；
+ *  已清仓持仓不在此，由 groupClosedPositions 收成表尾一组；
  *  组序按 CATEGORIES 声明顺序，兜底组「其他」恒定置底；组内按基金代码升序（见 byFundCode）。 */
 export function groupPositionsByCategory(positions: FundPosition[]): PositionGroup[] {
   const buckets = new Map<string, FundPosition[]>()
   for (const p of positions) {
-    if (p.shares === 0) continue
+    if (!isHeld(p)) continue
     const key = isCategory(p.category) ? p.category : OTHER_CATEGORY
     const bucket = buckets.get(key)
     if (bucket === undefined) buckets.set(key, [p])
@@ -208,7 +215,30 @@ export function groupPositionsByCategory(positions: FundPosition[]): PositionGro
   return groups
 }
 
+/** 已清仓组名：不是资产大类，只作持仓明细表尾分组的显示名（基金详情入口靠这些行保留） */
+export const CLOSED_CATEGORY = '已清仓'
+
+/** 是否交易过（买入或赎回过）：份额为 0 的两种情形靠它区分——
+ *  交易过 = 已清仓（战绩与历史值得回顾）；从无流水 = 从未建仓（不冒充已清仓）。 */
+function hasTraded(p: FundPosition): boolean {
+  return p.invested !== 0 || p.redeemed !== 0
+}
+
+/** 已清仓持仓（交易过、现份额 ≤ 0）合成表尾单独一组；无此类持仓时为 null。
+ *  组头市值恒为 null（份额 ≤ 0 时市值恒为 0 或未知，没有可合计的口径）；组内按基金代码升序。
+ *  与 groupPositionsByCategory 互补：两者并集 = 有过流水的持仓、交集为空（从未建仓的两边都不在）。 */
+export function groupClosedPositions(positions: FundPosition[]): PositionGroup | null {
+  const rows = positions.filter((p) => !isHeld(p) && hasTraded(p)).sort(byFundCode)
+  if (rows.length === 0) return null
+  return { category: CLOSED_CATEGORY, marketValue: null, positions: rows }
+}
+
 /** 大类配置对比：目标比例 / 实际投入比例 / 实际市值占比 / 偏离。
+ *  投入比例只统计仍**在持**的持仓（份额 > 0，判据是份额而非市值——持仓成本在、净值未录入时市值未知，
+ *  但钱确实投在里面）：已清仓基金留下的净投入残留不进分子也不进分母，否则清空的大类会凭空占着比例
+ *  （如止损清仓后净投入 = 亏损额，黄金 10358.20 / 总净投入 = 50.88%）。
+ *  已清空的大类（曾有流水、现无在持份额）偏离为 null——不提示低配，也不假装配平；
+ *  从未配置的大类偏离仍是 −目标比例（提示该仓位尚未建立）。
  *  行序按 CATEGORIES 声明顺序；闭集之外的类目排在其后（保留其在并集中的相对次序）。 */
 export function computeCategoryComparison(
   positions: FundPosition[],
@@ -220,15 +250,18 @@ export function computeCategoryComparison(
   categories.sort(
     (a, b) => (rank.get(a) ?? CATEGORIES.length) - (rank.get(b) ?? CATEGORIES.length)
   )
-  const totalNetCost = positions.reduce((s, p) => s + p.netCost, 0)
+  const totalNetCost = positions.reduce((s, p) => s + (isHeld(p) ? p.netCost : 0), 0)
   const totalAssets = positions.reduce((s, p) => s + (p.marketValue ?? 0), 0)
   return categories.map((category) => {
     const rows = positions.filter((p) => p.category === category)
-    const catNetCost = rows.reduce((s, p) => s + p.netCost, 0)
+    const held = rows.filter(isHeld)
+    const catNetCost = held.reduce((s, p) => s + p.netCost, 0)
     const catMarket = rows.reduce((s, p) => s + (p.marketValue ?? 0), 0)
     const investedRatio = totalNetCost === 0 ? null : catNetCost / totalNetCost
     const marketRatio = totalAssets === 0 ? null : catMarket / totalAssets
-    const deviation = marketRatio === null ? null : marketRatio - (targetMap.get(category) ?? 0)
+    const cleared = held.length === 0 && rows.some(hasTraded)
+    const deviation =
+      marketRatio === null || cleared ? null : marketRatio - (targetMap.get(category) ?? 0)
     return {
       category,
       targetRatio: targetMap.get(category) ?? 0,
