@@ -494,6 +494,23 @@ body {
   color: #86909c;
 }
 
+/* 只读派生值（如卖出表单的本笔已实现预览）：与可编辑输入同高，底色区分 */
+.form-preview {
+  border: 1px solid #e5e6eb;
+  border-radius: 4px;
+  padding: 6px 10px;
+  min-height: 30px;
+  box-sizing: border-box;
+  font-size: 13px;
+  line-height: 1.4;
+  background: #f7f8fa;
+}
+
+.form-preview .muted {
+  font-size: 12px;
+  line-height: inherit;
+}
+
 .fund-form {
   border: 1px dashed #c9cdd4;
   border-radius: 8px;

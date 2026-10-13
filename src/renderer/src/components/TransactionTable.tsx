@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import type { Fund, OperationType, TransactionRow } from '../../../engine'
-import { OPERATION_TYPES } from '../../../engine'
+import { OPERATION_TYPES, realizedPerSale } from '../../../engine'
 import { formatMoney, formatNav, formatShares } from '../utils/format'
+import { pnlClass } from '../utils/pnl'
 
 export interface TxFilter {
   fundCode: string // 'all' 或基金代码
@@ -44,6 +45,8 @@ export default function TransactionTable({
   onDelete
 }: TransactionTableProps): React.JSX.Element {
   const fundNames = useMemo(() => new Map(funds.map((f) => [f.code, f.name])), [funds])
+  // 按笔已实现收益：对全部流水计算（成本推进依赖历史，不能在筛选后的子集上算）
+  const realizedBySale = useMemo(() => realizedPerSale(rows), [rows])
 
   const visible = useMemo(() => {
     const filtered = rows.filter(
@@ -130,6 +133,7 @@ export default function TransactionTable({
             <th className="sortable" onClick={() => toggleSort('amount')}>
               金额（元）{sortArrow('amount')}
             </th>
+            <th>本笔已实现</th>
             <th>份额</th>
             <th>净值</th>
             <th>手续费</th>
@@ -140,35 +144,42 @@ export default function TransactionTable({
         <tbody>
           {visible.length === 0 && (
             <tr>
-              <td colSpan={9} className="muted">
+              <td colSpan={10} className="muted">
                 无匹配流水
               </td>
             </tr>
           )}
-          {visible.map((t) => (
-            <tr key={t.id}>
-              <td>{t.date}</td>
-              <td>
-                <span className={`tag ${TYPE_CLASS[t.type]}`}>{t.type}</span>
-              </td>
-              <td>
-                {t.fundCode} {fundNames.get(t.fundCode) ?? ''}
-              </td>
-              <td>{formatMoney(t.amount)}</td>
-              <td>{t.shares === null ? '—' : formatShares(t.shares)}</td>
-              <td>{formatNav(t.nav)}</td>
-              <td>{formatMoney(t.fee)}</td>
-              <td className="muted">{t.note ?? ''}</td>
-              <td>
-                <button className="btn btn-small" onClick={() => onEdit(t)}>
-                  编辑
-                </button>{' '}
-                <button className="btn btn-small btn-danger" onClick={() => onDelete(t)}>
-                  删除
-                </button>
-              </td>
-            </tr>
-          ))}
+          {visible.map((t) => {
+            // 仅卖出行有值；非卖出行留空
+            const realized = t.type === '卖出' ? realizedBySale.get(t.id) : undefined
+            return (
+              <tr key={t.id}>
+                <td>{t.date}</td>
+                <td>
+                  <span className={`tag ${TYPE_CLASS[t.type]}`}>{t.type}</span>
+                </td>
+                <td>
+                  {t.fundCode} {fundNames.get(t.fundCode) ?? ''}
+                </td>
+                <td>{formatMoney(t.amount)}</td>
+                <td className={pnlClass(realized)}>
+                  {realized === undefined ? '' : formatMoney(realized)}
+                </td>
+                <td>{t.shares === null ? '—' : formatShares(t.shares)}</td>
+                <td>{formatNav(t.nav)}</td>
+                <td>{formatMoney(t.fee)}</td>
+                <td className="muted">{t.note ?? ''}</td>
+                <td>
+                  <button className="btn btn-small" onClick={() => onEdit(t)}>
+                    编辑
+                  </button>{' '}
+                  <button className="btn btn-small btn-danger" onClick={() => onDelete(t)}>
+                    删除
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

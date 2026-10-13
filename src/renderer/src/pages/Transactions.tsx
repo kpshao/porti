@@ -219,6 +219,7 @@ export default function Transactions(): React.JSX.Element {
         <TransactionForm
           key={formOpen.mode === 'edit' ? formOpen.tx.id : 'new'}
           funds={txData?.funds ?? []}
+          transactions={txData?.transactions ?? []}
           initial={formOpen.mode === 'edit' ? formOpen.tx : null}
           onSubmit={submitForm}
           onCancel={() => setFormOpen(null)}

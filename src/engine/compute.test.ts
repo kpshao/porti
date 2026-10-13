@@ -21,6 +21,8 @@ import {
   computeTotalAnnualizedReturn,
   applyCostBasis,
   costBasisStates,
+  realizedPerSale,
+  realizedForSale,
   groupPositionsByCategory,
   groupClosedPositions,
   OTHER_CATEGORY,
@@ -1137,5 +1139,229 @@ describe('整体年化（XIRR，手算黄金值）', () => {
 
   it('无流水 → null', () => {
     expect(computeTotalAnnualizedReturn([], [], '2027-01-01')).toBeNull()
+  })
+})
+
+describe('按笔已实现收益（realizedPerSale / realizedForSale，手算黄金值）', () => {
+  /** 流水行：id 显式给出（同日的先后由 id 决定，与库内 order by date, id 同规则） */
+  const mk = (
+    id: number,
+    date: string,
+    type: Transaction['type'],
+    amount: number,
+    shares: number | null,
+    fundCode = 'A'
+  ): TransactionRow => ({ id, date, type, fundCode, amount, shares, nav: null, fee: 0, note: null })
+
+  it('单笔全清：000217 止损 −10358.20（卖出回款 − 持仓成本）', () => {
+    const rows: TransactionRow[] = [
+      mk(1, '2026-02-26', '买入', 59050, 16032.86, '000217'),
+      mk(2, '2026-10-09', '卖出', -48691.8, -16032.86, '000217')
+    ]
+    expect(realizedPerSale(rows).get(2)).toBeCloseTo(-10358.2, 6)
+  })
+
+  it('多次买入 + 部分卖出：按移动加权均价消耗成本', () => {
+    // 均价 340/30；卖出 15 份消耗 170；已实现 = 195 − 170 = 25
+    const rows: TransactionRow[] = [
+      mk(1, '2026-01-01', '买入', 100, 10),
+      mk(2, '2026-02-01', '买入', 240, 20),
+      mk(3, '2026-03-01', '卖出', -195, -15)
+    ]
+    const map = realizedPerSale(rows)
+    expect(map.get(3)).toBeCloseTo(25, 6)
+    expect(map.size).toBe(1)
+  })
+
+  it('清仓后再买再卖：两笔各自独立，历史已实现不参与新仓位', () => {
+    const rows: TransactionRow[] = [
+      mk(1, '2026-01-01', '买入', 100, 100),
+      mk(2, '2026-02-01', '卖出', -150, -100), // 全清：150 − 100 = 50
+      mk(3, '2026-03-01', '买入', 100, 50),
+      mk(4, '2026-04-01', '卖出', -70, -25) // 均价 100/50；消耗 50；70 − 50 = 20
+    ]
+    const map = realizedPerSale(rows)
+    expect(map.get(2)).toBeCloseTo(50, 6)
+    expect(map.get(4)).toBeCloseTo(20, 6)
+  })
+
+  it('同基金多笔卖出 + 多基金交错：归属到各自 id（盈利与亏损都在）', () => {
+    const rows: TransactionRow[] = [
+      mk(1, '2026-01-01', '买入', 100, 100, 'A'),
+      mk(2, '2026-01-02', '买入', 200, 100, 'B'),
+      mk(3, '2026-02-01', '卖出', -150, -100, 'A'), // 150 − 100 = 50
+      mk(4, '2026-02-01', '卖出', -160, -100, 'B') // 160 − 200 = −40
+    ]
+    const map = realizedPerSale(rows)
+    expect(map.get(3)).toBeCloseTo(50, 6)
+    expect(map.get(4)).toBeCloseTo(-40, 6)
+    expect(map.size).toBe(2)
+  })
+
+  it('同一基金多笔卖出：各归各的 id（两笔值不同，对调即红）', () => {
+    const rows: TransactionRow[] = [
+      mk(1, '2026-01-01', '买入', 100, 100),
+      mk(2, '2026-02-01', '卖出', -70, -50), // 消耗 50 → 20
+      mk(3, '2026-03-01', '买入', 200, 100), // 均价 250/150
+      mk(4, '2026-04-01', '卖出', -210, -105) // 消耗 175 → 35
+    ]
+    const map = realizedPerSale(rows)
+    expect(map.get(2)).toBeCloseTo(20, 6)
+    expect(map.get(4)).toBeCloseTo(35, 6)
+  })
+
+  it('非卖出行不入表（买入 / 分红现金 / 分红再投入）', () => {
+    const rows: TransactionRow[] = [
+      mk(1, '2026-01-01', '买入', 100, 100),
+      mk(2, '2026-02-01', '分红再投入', 0, 20),
+      mk(3, '2026-03-01', '分红现金', 10, null),
+      mk(4, '2026-04-01', '卖出', -66, -60) // 均价 100/120；消耗 50；66 − 50 = 16
+    ]
+    const map = realizedPerSale(rows)
+    expect([...map.keys()]).toEqual([4])
+    expect(map.get(4)).toBeCloseTo(16, 6)
+  })
+
+  it('已实现收益为 0 的卖出仍在表内（列显示 0.00 而非留空）', () => {
+    const rows: TransactionRow[] = [
+      mk(1, '2026-01-01', '买入', 100, 100),
+      mk(2, '2026-02-01', '卖出', -50, -50) // 消耗 50 → 已实现 0
+    ]
+    expect(realizedPerSale(rows).get(2)).toBe(0)
+  })
+
+  it('恒等回归：逐笔之和 = costBasisStates 的累计已实现收益（各基金分别成立）', () => {
+    const rows: TransactionRow[] = [
+      mk(1, '2026-01-01', '买入', 100, 100, 'A'),
+      mk(2, '2026-01-01', '买入', 200, 100, 'B'),
+      mk(3, '2026-02-01', '卖出', -150, -100, 'A'),
+      mk(4, '2026-03-01', '买入', 120, 60, 'A'),
+      mk(5, '2026-04-01', '卖出', -80, -30, 'A'),
+      mk(6, '2026-05-01', '分红现金', 10, null, 'B'),
+      mk(7, '2026-06-01', '卖出', -160, -100, 'B'),
+      mk(8, '2026-07-01', '买入', 50, 25, 'B'),
+      mk(9, '2026-08-01', '卖出', -40, -25, 'B')
+    ]
+    const map = realizedPerSale(rows)
+    const states = costBasisStates(rows)
+    for (const [fundCode, state] of states) {
+      const sum = rows
+        .filter((t) => t.fundCode === fundCode)
+        .reduce((s, t) => s + (map.get(t.id) ?? 0), 0)
+      expect(sum).toBeCloseTo(state.realizedGain, 6)
+      expect(state.realizedGain).not.toBe(0) // 样本本身有非零已实现，恒等式非空转
+    }
+    // 全局合计同样成立
+    const all = [...map.values()].reduce((s, v) => s + v, 0)
+    const total = [...states.values()].reduce((s, st) => s + st.realizedGain, 0)
+    expect(all).toBeCloseTo(total, 6)
+  })
+
+  it('realizedForSale：候选卖出与入库后逐笔计算同源', () => {
+    const rows: TransactionRow[] = [mk(1, '2026-01-01', '买入', 100, 100)]
+    const sale: Transaction = {
+      date: '2026-02-01',
+      type: '卖出',
+      fundCode: 'A',
+      amount: -150,
+      shares: -100,
+      nav: 1.5,
+      fee: 0,
+      note: null
+    }
+    expect(realizedForSale(rows, sale)).toBeCloseTo(50, 6)
+    expect(realizedForSale(rows, sale)).toBeCloseTo(
+      realizedPerSale([...rows, { ...sale, id: 99 }]).get(99)!,
+      6
+    )
+  })
+
+  it('realizedForSale：编辑已有卖出沿用原主键位次（同日更大 id 的流水仍在它之后）', () => {
+    const rows: TransactionRow[] = [
+      mk(1, '2026-01-01', '买入', 100, 100),
+      mk(2, '2026-02-01', '卖出', -70, -50), // 被编辑的旧行
+      mk(3, '2026-02-01', '买入', 200, 100) // 同日、id 更大：编辑后仍排在它之后
+    ]
+    const edited: Transaction = {
+      date: '2026-02-01',
+      type: '卖出',
+      fundCode: 'A',
+      amount: -180,
+      shares: -100,
+      nav: 1.8,
+      fee: 0,
+      note: null
+    }
+    // 原 id 位次：本笔先入账（消耗 100 → 80），同日买入在其后；按占位主键排最后则先入账两笔买入
+    //（均价 300/200、消耗 150 → 30），故位次错则值错
+    expect(realizedForSale(rows, edited, 2)).toBeCloseTo(80, 6)
+    // 与「把新值写回原 id 后逐笔计算」同源（= 保存后流水表列上的值）
+    expect(realizedForSale(rows, edited, 2)).toBeCloseTo(
+      realizedPerSale([rows[0], { ...edited, id: 2 }, rows[2]]).get(2)!,
+      6
+    )
+  })
+
+  it('realizedForSale：候选日当日的既有流水先入账（候选视为当日最后一笔）', () => {
+    const rows: TransactionRow[] = [mk(1, '2026-02-01', '买入', 100, 100)]
+    const sale: Transaction = {
+      date: '2026-02-01',
+      type: '卖出',
+      fundCode: 'A',
+      amount: -150,
+      shares: -100,
+      nav: 2,
+      fee: 0,
+      note: null
+    }
+    // 同日买入先入账：消耗成本 100，已实现 50（若不先入账则是超卖，已实现 150）
+    expect(realizedForSale(rows, sale)).toBeCloseTo(50, 6)
+  })
+
+  it('realizedForSale：其他基金的流水与候选日之后的流水都不参与', () => {
+    const rows: TransactionRow[] = [
+      mk(1, '2026-01-01', '买入', 100, 100, 'A'),
+      mk(2, '2026-01-01', '买入', 900, 100, 'B'),
+      mk(3, '2026-03-01', '买入', 500, 100, 'A') // 候选日之后，不计入成本
+    ]
+    const sale: Transaction = {
+      date: '2026-02-01',
+      type: '卖出',
+      fundCode: 'A',
+      amount: -150,
+      shares: -100,
+      nav: 1.5,
+      fee: 0,
+      note: null
+    }
+    expect(realizedForSale(rows, sale)).toBeCloseTo(50, 6)
+  })
+
+  it('realizedForSale：非卖出返回 null', () => {
+    const buy: Transaction = {
+      date: '2026-02-01',
+      type: '买入',
+      fundCode: 'A',
+      amount: 100,
+      shares: 100,
+      nav: 1,
+      fee: 0,
+      note: null
+    }
+    expect(realizedForSale([], buy)).toBeNull()
+  })
+
+  it('realizedForSale：无任何历史流水时超卖（份额 ≤ 0）→ 消耗成本为 0，全额回款计入', () => {
+    const sale: Transaction = {
+      date: '2026-02-01',
+      type: '卖出',
+      fundCode: 'A',
+      amount: -150,
+      shares: -100,
+      nav: 1.5,
+      fee: 0,
+      note: null
+    }
+    expect(realizedForSale([], sale)).toBeCloseTo(150, 6)
   })
 })

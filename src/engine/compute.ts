@@ -84,15 +84,56 @@ export function applyCostBasis(state: CostBasisState, t: Transaction): CostBasis
   return { ...state, cashDividends: state.cashDividends + t.amount }
 }
 
-/** 全时段成本基础映射：按日期升序稳定排序（同日保持输入顺序——库内查询 ORDER BY date, id
- *  与流水分页返回顺序同规则）；返回 Map<fundCode, CostBasisState>。 */
+/** 流水时序：按 (date, id) 升序——库内查询 ORDER BY date, id 同规则，全代码库的时序约定
+ *  只此一处定义。未入库的流水没有 id（调用方按库内次序传入），退化为按日期稳定排序。 */
+function byDateThenId(a: Transaction & { id?: number }, b: Transaction & { id?: number }): number {
+  if (a.date !== b.date) return a.date < b.date ? -1 : 1
+  return (a.id ?? 0) - (b.id ?? 0)
+}
+
+/** 全时段成本基础映射：按 byDateThenId 推进；返回 Map<fundCode, CostBasisState>。 */
 export function costBasisStates(transactions: Transaction[]): Map<string, CostBasisState> {
-  const sorted = [...transactions].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  const sorted = [...transactions].sort(byDateThenId)
   const states = new Map<string, CostBasisState>()
   for (const t of sorted) {
     states.set(t.fundCode, applyCostBasis(states.get(t.fundCode) ?? ZERO_BASIS, t))
   }
   return states
+}
+
+/** 候选流水（尚未入库）的占位主键：保证它在同日流水里排在最后，
+ *  与库内查询 ORDER BY date, id 下新流水 id 最大的事实一致。 */
+const CANDIDATE_ID = Number.MAX_SAFE_INTEGER
+
+/** 每笔卖出的已实现收益：Map<流水主键, 金额>，非卖出行不入表（含 0 的卖出保留）。
+ *  推进复用 applyCostBasis 的同一套移动加权平均，故各笔之和 = costBasisStates 的累计已实现收益。 */
+export function realizedPerSale(rows: TransactionRow[]): Map<number, number> {
+  const states = new Map<string, CostBasisState>()
+  const result = new Map<number, number>()
+  for (const t of [...rows].sort(byDateThenId)) {
+    const before = states.get(t.fundCode) ?? ZERO_BASIS
+    const after = applyCostBasis(before, t)
+    states.set(t.fundCode, after)
+    if (t.type === '卖出') result.set(t.id, after.realizedGain - before.realizedGain)
+  }
+  return result
+}
+
+/** 候选卖出的已实现收益（卖出表单保存前预览用）：同基金、候选日（含）之前的既有流水先按
+ *  byDateThenId 推进成本基础（候选日之后的流水不参与），再把候选这一笔虚拟推进，返回其已实现收益。
+ *  候选的排序位次与保存后一致，故预览值与流水表列上的值一致——
+ *  新建用占位主键 CANDIDATE_ID（新流水 id 最大，排在当日最后）；
+ *  编辑传 editingId 用原主键（旧行被同 id 的候选取代，位次不变）。
+ *  与 realizedPerSale 同一套口径（同一 applyCostBasis）。非卖出返回 null。 */
+export function realizedForSale(
+  rows: TransactionRow[],
+  sale: Transaction,
+  editingId?: number
+): number | null {
+  if (sale.type !== '卖出') return null
+  const id = editingId ?? CANDIDATE_ID
+  const before = rows.filter((t) => t.fundCode === sale.fundCode && t.date <= sale.date && t.id !== id)
+  return realizedPerSale([...before, { ...sale, id }]).get(id) ?? null
 }
 
 /** 每只基金的持仓明细。口径与 Excel 持仓概览逐项一致。 */
@@ -323,7 +364,7 @@ export function computeStatsSeries(
 ): StatsPoint[] {
   const series = computeTimeSeries(funds, transactions, navPoints)
   const weekly = weeklyReturnRows(series)
-  const sorted = [...transactions].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  const sorted = [...transactions].sort(byDateThenId)
   const states = new Map<string, CostBasisState>()
   let idx = 0
   return series.map((p, i) => {
@@ -360,9 +401,7 @@ export function computeFundSeries(
 ): FundSeriesPoint[] {
   if (!funds.some((f) => f.code === fundCode)) return []
   const dates = [...new Set(navPoints.filter((p) => p.fundCode === fundCode).map((p) => p.date))].sort()
-  const sorted = transactions
-    .filter((t) => t.fundCode === fundCode)
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id))
+  const sorted = transactions.filter((t) => t.fundCode === fundCode).sort(byDateThenId)
   let state = ZERO_BASIS
   let idx = 0
   const series: FundSeriesPoint[] = []

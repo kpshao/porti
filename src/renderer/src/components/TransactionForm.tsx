@@ -1,7 +1,15 @@
-import { useState } from 'react'
-import type { Fund, OperationType, TransactionRow } from '../../../engine'
-import { CATEGORIES, normalizeFundCode, normalizeTransactionInput, OPERATION_TYPES } from '../../../engine'
+import { useMemo, useState } from 'react'
+import type { Fund, OperationType, Transaction, TransactionRow } from '../../../engine'
+import {
+  CATEGORIES,
+  normalizeFundCode,
+  normalizeTransactionInput,
+  OPERATION_TYPES,
+  realizedForSale
+} from '../../../engine'
 import type { FundInput, TransactionInput } from '../../../engine'
+import { formatMoney } from '../utils/format'
+import { pnlClass } from '../utils/pnl'
 
 /** 字符串 → 数字；空/非法返回 null */
 function numOrNull(s: string): number | null {
@@ -16,6 +24,8 @@ function toNumberString(n: number | null): string {
 
 interface TransactionFormProps {
   funds: Fund[]
+  /** 全部流水（本笔已实现预览的成本推进依据） */
+  transactions: TransactionRow[]
   /** 编辑时传入原流水；null 表示新建 */
   initial: TransactionRow | null
   onSubmit: (input: TransactionInput) => Promise<void>
@@ -26,6 +36,7 @@ interface TransactionFormProps {
 
 export default function TransactionForm({
   funds,
+  transactions,
   initial,
   onSubmit,
   onCancel,
@@ -52,6 +63,30 @@ export default function TransactionForm({
   const [fundTypeInput, setFundTypeInput] = useState('')
   const [fundError, setFundError] = useState<string | null>(null)
   const [fundBusy, setFundBusy] = useState(false)
+
+  /** 本笔已实现预览：仅卖出、且表单已成形时计算；口径与流水表同源（realizedForSale，
+   *  编辑时传原主键，候选值替换旧值而非在旧值之后再叠一笔）。
+   *  表单未填全（缺日期/基金/金额/份额）或不合规时返回 null，不预览。 */
+  const previewRealized = useMemo((): number | null => {
+    if (type !== '卖出') return null
+    let sale: Transaction
+    try {
+      // 借 normalizeTransactionInput 归一（卖出取负、校验齐全），与保存走同一套规则
+      sale = normalizeTransactionInput({
+        date,
+        type: '卖出',
+        fundCode,
+        amount: numOrNull(amount),
+        shares: numOrNull(shares),
+        nav: numOrNull(nav),
+        fee: numOrNull(fee),
+        note: null
+      })
+    } catch {
+      return null // 校验不过（表单未成形）：不预览；计算本身的异常不在此吞掉
+    }
+    return realizedForSale(transactions, sale, initial?.id)
+  }, [transactions, initial, date, type, fundCode, amount, shares, nav, fee])
 
   const save = async (): Promise<void> => {
     setError(null)
@@ -172,6 +207,18 @@ export default function TransactionForm({
           <span>备注</span>
           <input type="text" value={note} onChange={(e) => setNote(e.target.value)} />
         </label>
+        {type === '卖出' && (
+          <div className="form-field">
+            <span>本笔已实现</span>
+            <div className={`form-preview ${pnlClass(previewRealized)}`}>
+              {previewRealized === null ? (
+                <span className="muted">填全日期、基金、金额与份额后显示</span>
+              ) : (
+                formatMoney(previewRealized)
+              )}
+            </div>
+          </div>
+        )}
         <div className="form-field">
           <span />
           <button className="btn btn-small" onClick={() => setFundFormOpen(!fundFormOpen)}>
