@@ -332,7 +332,7 @@ function computeSummaryData(
   return {
     all: computeScopedSummary('all', positions, transactions, navPoints, today),
     held: computeScopedSummary('held', positions, transactions, navPoints, today),
-    perFund: computePerFundAnnualized(transactions, navPoints, today)
+    perFundAnnualized: computePerFundAnnualized(transactions, navPoints, today)
   }
 }
 
@@ -342,9 +342,9 @@ function computePerFundAnnualized(
   navPoints: NavPoint[],
   today: string
 ): Record<string, number | null> {
-  const perFund: Record<string, number | null> = {}
+  const perFundAnnualized: Record<string, number | null> = {}
   for (const [fundCode, value] of computeAnnualizedReturns(transactions, navPoints, today)) {
-    perFund[fundCode] = value
+    perFundAnnualized[fundCode] = value
   }
-  return perFund
+  return perFundAnnualized
 }

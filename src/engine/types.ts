@@ -98,7 +98,7 @@ export interface ScopedSummary {
 export interface SummaryData {
   all: ScopedSummary
   held: ScopedSummary
-  perFund: Record<string, number | null>
+  perFundAnnualized: Record<string, number | null>
 }
 
 export interface CategoryComparisonRow {

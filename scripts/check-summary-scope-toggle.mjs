@@ -323,8 +323,9 @@ function checkIdentity(state, where) {
   const pnl = valueOf('持仓盈亏')
   const realized = valueOf('已实现盈亏')
   const total = valueOf('总收益')
+  // 三个显示值各 ±0.005，最大舍入差 0.015；0.02 只放过舍入噪声
   check(
-    pnl !== null && realized !== null && total !== null && Math.abs(total - (pnl + realized)) <= 0.01,
+    pnl !== null && realized !== null && total !== null && Math.abs(total - (pnl + realized)) <= 0.02,
     `${where}第二行恒等式成立：持仓盈亏 + 已实现盈亏 = 总收益`,
     pnl === null || realized === null || total === null ? '存在「—」，无法手算' : '显示值手算通过'
   )
@@ -449,8 +450,8 @@ console.log('— 点击切换到「全部基金」—')
   const state = await readScope()
   checkScopeState(state, 'all', '概览页点击后')
   const model = await evalAsync('window.api.overviewData()')
-  checkCardsAgainstModel(state, model?.summary?.all, 'all', '概览页·全部口径')
-  checkIdentity(state, '概览页·全部口径')
+  checkCardsAgainstModel(state, model?.summary?.all, 'all', '概览页·全部基金口径')
+  checkIdentity(state, '概览页·全部基金口径')
 }
 
 // ---- 7. 切到流水页：口径保持；键盘 Space 切回在持 ---------------------------
@@ -462,8 +463,8 @@ console.log('— 交易流水页：口径联动与键盘切换 —')
   checkScopeState(linked, 'all', '切页后交易流水页')
 
   const txAll = await evalAsync('window.api.txData()')
-  checkCardsAgainstModel(linked, txAll?.summary?.all, 'all', '流水页·全部口径')
-  checkIdentity(linked, '流水页·全部口径')
+  checkCardsAgainstModel(linked, txAll?.summary?.all, 'all', '流水页·全部基金口径')
+  checkIdentity(linked, '流水页·全部基金口径')
 
   // 键盘 Space：切回「在持基金」
   await pressScopeKey('held', ' ')
@@ -488,8 +489,8 @@ console.log('— 概览页：反向联动与 Enter 键切换 —')
   const afterEnter = await readScope()
   checkScopeState(afterEnter, 'all', '概览页 Enter 键切换后')
   const overviewAll = await evalAsync('window.api.overviewData()')
-  checkCardsAgainstModel(afterEnter, overviewAll?.summary?.all, 'all', '概览页·全部口径（Enter）')
-  checkIdentity(afterEnter, '概览页·全部口径（Enter）')
+  checkCardsAgainstModel(afterEnter, overviewAll?.summary?.all, 'all', '概览页·全部基金口径（Enter）')
+  checkIdentity(afterEnter, '概览页·全部基金口径（Enter）')
   await shot('overview-all')
 }
 
@@ -502,8 +503,8 @@ try {
   const state = await readScope()
   checkScopeState(state, 'all', '重启 #1 后概览页')
   const model = await evalAsync('window.api.overviewData()')
-  checkCardsAgainstModel(state, model?.summary?.all, 'all', '重启 #1 后概览页·全部口径')
-  checkIdentity(state, '重启 #1 后概览页·全部口径')
+  checkCardsAgainstModel(state, model?.summary?.all, 'all', '重启 #1 后概览页·全部基金口径')
+  checkIdentity(state, '重启 #1 后概览页·全部基金口径')
 
   // 切回在持，供下一次重启验证反向持久化
   await clickScope('held')

@@ -141,7 +141,7 @@ export default function Overview(): React.JSX.Element {
                 {groupsToShow.map((group) => (
                   <tbody key={group.category}>
                     {group.positions.map((p, rowIndex) => {
-                      const annualized = data.summary?.perFund[p.fundCode] ?? null
+                      const annualized = data.summary?.perFundAnnualized[p.fundCode] ?? null
                       return (
                         <tr key={p.fundCode}>
                           {rowIndex === 0 && (

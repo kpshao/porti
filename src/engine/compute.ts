@@ -592,17 +592,15 @@ export function computeScopedSummary(
   navPoints: NavPoint[],
   today: string
 ): ScopedSummary {
-  if (scope === 'all') {
-    return {
-      totals: computeTotals(positions, transactions),
-      annualized: computeTotalAnnualizedReturn(transactions, navPoints, today)
-    }
+  let scopedPositions = positions
+  let scopedTransactions = transactions
+  if (scope === 'held') {
+    scopedPositions = positions.filter(isHeld)
+    const heldCodes = new Set(scopedPositions.map((p) => p.fundCode))
+    scopedTransactions = transactions.filter((t) => heldCodes.has(t.fundCode))
   }
-  const heldPositions = positions.filter(isHeld)
-  const heldCodes = new Set(heldPositions.map((p) => p.fundCode))
-  const heldTransactions = transactions.filter((t) => heldCodes.has(t.fundCode))
   return {
-    totals: computeTotals(heldPositions, heldTransactions),
-    annualized: computeTotalAnnualizedReturn(heldTransactions, navPoints, today)
+    totals: computeTotals(scopedPositions, scopedTransactions),
+    annualized: computeTotalAnnualizedReturn(scopedTransactions, navPoints, today)
   }
 }
