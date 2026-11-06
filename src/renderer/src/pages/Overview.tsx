@@ -3,6 +3,7 @@ import { CLOSED_CATEGORY } from '../../../engine'
 import type { OverviewData } from '../../../main/overviewTypes'
 import FundDetail from '../components/FundDetail'
 import SummaryCards from '../components/SummaryCards'
+import { MERGED_BUY_HINT } from '../utils/annualized'
 import { formatMoney, formatNav, formatPercent, formatShares } from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
 import { pnlClass } from '../utils/pnl'
@@ -162,11 +163,11 @@ export default function Overview(): React.JSX.Element {
                               </td>
                               <td className="group-cell" rowSpan={group.positions.length}>
                                 <div className="group-summary-main">{formatMoney(group.marketValue)}</div>
-                                {/* 已清仓组不是资产大类：只显示一个「—」，不渲染两条组级指标 */}
+                                {/* 已清仓组不是资产大类：只显示一个「—」，不渲染两条大类指标 */}
                                 {group.category !== CLOSED_CATEGORY && (
                                   <>
-                                    <GroupMetricRow label="盈亏" value={group.pnlRatio} />
-                                    <GroupMetricRow label="年化" value={group.annualized} />
+                                    <GroupMetricRow label="盈亏比例" value={group.pnlRatio} />
+                                    <GroupMetricRow label="年化收益率" value={group.annualized} />
                                   </>
                                 )}
                               </td>
@@ -198,8 +199,7 @@ export default function Overview(): React.JSX.Element {
           )}
           <p className="muted">
             点击基金名称可查看基金详情与收益走势。
-            大类汇总：盈亏 = 组内持仓盈亏合计 ÷ 持仓成本合计（不含卖出/分红的已实现盈亏）；年化 =
-            组内在持基金的 XIRR。合并买入记录会拉长持有期，使年化偏低。
+            {`大类汇总：大类盈亏比例 = 组内持仓盈亏合计 ÷ 持仓成本合计（不含卖出/分红的已实现盈亏）；大类年化收益率 = 组内在持基金的 XIRR。${MERGED_BUY_HINT}，使大类年化收益率偏低。`}
             {closedGroup !== null &&
               '已清仓基金（交易过后份额归零）默认不显示——它们是数据不是仓位，需要回顾战绩时用上方开关找回。'}
           </p>

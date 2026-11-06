@@ -143,11 +143,11 @@ export function registerDataIpc(): void {
     const navPoints = selectNavPoints(db)
     const positions = computePositions(funds, transactions, navPoints)
     const comparison = computeCategoryComparison(positions, selectCategoryTargets(db))
-    // 每次请求只取一次「今天」：汇总年化与组级年化用同一个期末估值日，避免跨午夜不一致
+    // 每次请求只取一次「今天」：汇总年化与大类年化收益率用同一个期末估值日，避免跨午夜不一致
     const today = todayString()
     return {
       funds,
-      positionGroups: groupPositionsByCategory(positions, transactions, navPoints, today),
+      positionGroups: groupPositionsByCategory(positions, transactions, today),
       closedGroup: groupClosedPositions(positions),
       summary: computeSummaryData(positions, transactions, navPoints, today),
       comparison
@@ -326,7 +326,7 @@ function todayString(): string {
 
 /** 汇总数据组装：同一组入参一次算好两种口径（all/held）与单基金年化映射。
  *  两页共用，切换口径只换展示字段、不重新取数。
- *  today 由调用方每次请求只取一次，与同请求内的组级年化共用同一个期末估值日。 */
+ *  today 由调用方每次请求只取一次，与同请求内的大类年化收益率共用同一个期末估值日。 */
 function computeSummaryData(
   positions: FundPosition[],
   transactions: Transaction[],
