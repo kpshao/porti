@@ -84,6 +84,15 @@ export interface Totals {
   totalReturn: number // 总收益 = 持仓盈亏 + 已实现盈亏（数值与简单成本法恒等）
 }
 
+/** 汇总口径：全部基金 / 在持基金（份额 > 0） */
+export type SummaryScope = 'all' | 'held'
+
+/** 口径化汇总：该统计范围的 Totals 与整体年化收益率（无定义时为 null） */
+export interface ScopedSummary {
+  totals: Totals
+  annualized: number | null
+}
+
 export interface CategoryComparisonRow {
   category: string
   targetRatio: number
