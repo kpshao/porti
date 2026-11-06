@@ -72,6 +72,8 @@ export interface FundPosition {
 export interface PositionGroup {
   category: string // 组名：CATEGORIES 之一、兜底组「其他」，或表尾组「已清仓」
   marketValue: number | null // 组头合计（口径见 groupPositionsByCategory）；组内全无净值时为 null
+  pnlRatio: number | null // 大类盈亏比例 = Σ持仓盈亏 / Σ持仓成本（仅组内在持；任一市值未知或成本合计 ≤ 0 时为 null）
+  annualized: number | null // 大类年化收益率（XIRR；口径见 groupPositionsByCategory，无定义时为 null）
   positions: FundPosition[] // 组内明细，按基金代码升序
 }
 

@@ -318,8 +318,23 @@ body {
   font-weight: 600;
 }
 
-/* 概览持仓明细：11 列在默认窗口（1280）下按 8px 横向内边距刚好放得下，
-   10px 会多出约 32px 溢出卡片。窗口更窄时由 .table-scroll-x 在卡片内横向滚动承接。 */
+/* 组汇总单元格三行：市值主行沿用单元格字重，子行 12px 常规字重、标签用既有弱化色；
+   数值沿用 .positive / .negative 的正红负绿。nowrap 由 .table-positions .group-cell 继承 */
+.group-summary-sub {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.group-summary-label {
+  color: #86909c;
+  margin-right: 4px;
+}
+
+/* 概览持仓明细：11 列在默认窗口（1280，可用约 1018px）下需把横向内边距收紧到 6px——
+   组汇总的「盈亏比例 / 年化收益率」全称子行（12px）比原短标签宽约 32px，8px 内边距会横向滚动
+   （1036 > 1018）；6px 后自然宽度约 992px，滚动宽度回到可用宽度（1018 = 1018）。
+   窗口更窄时由 .table-scroll-x 在卡片内横向滚动承接。 */
 .card-positions {
   container-type: inline-size;
 }
@@ -330,8 +345,8 @@ body {
 
 .table-positions th,
 .table-positions td {
-  padding-left: 8px;
-  padding-right: 8px;
+  padding-left: 6px;
+  padding-right: 6px;
 }
 
 /* 组标签永不折行：「固守+」断成「固守 / +」在任何宽度下都是错的 */

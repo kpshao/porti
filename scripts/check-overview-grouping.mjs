@@ -188,8 +188,10 @@ const state = await evalJs(`(() => {
   const readCell = (el) => {
     if (!el) return null
     const cs = getComputedStyle(el)
+    // 组汇总格现在是多行（市值主行 + 盈亏比例 + 年化收益率）：跨组断言只读主行市值
+    const main = el.querySelector('.group-summary-main')
     return {
-      text: el.textContent.trim(),
+      text: (main ?? el).textContent.trim(),
       rowSpan: el.getAttribute('rowspan'),
       bg: cs.backgroundColor,
       valign: cs.verticalAlign
@@ -201,7 +203,15 @@ const state = await evalJs(`(() => {
     r.selectNodeContents(el)
     return r.getBoundingClientRect().height
   }
-  const isWrapped = (td) => textHeight(td) > parseFloat(getComputedStyle(td).fontSize) * 1.8
+  const isWrapped = (el) => textHeight(el) > parseFloat(getComputedStyle(el).fontSize) * 1.8
+  // 组汇总格的三行是设计，不是折行：有内部行元素时逐行判定，其余单元格仍按整个 td 判定
+  const wrappedTexts = (td) => {
+    const lines = [...td.querySelectorAll('.group-summary-main, .group-summary-sub')]
+    const targets = lines.length > 0 ? lines : [td]
+    return targets
+      .filter((el) => el.textContent.trim() !== '' && isWrapped(el))
+      .map((el) => el.textContent.trim().slice(0, 14))
+  }
   const groups = [...table.querySelectorAll('tbody')].map((tb) => {
     const trs = [...tb.querySelectorAll('tr')]
     const first = trs[0] ?? null
@@ -215,9 +225,7 @@ const state = await evalJs(`(() => {
         return {
           code: tr.children[off]?.textContent?.trim() ?? '',
           marketValue: tr.children[off + 5]?.textContent?.trim() ?? '',
-          wrapped: [...tr.children]
-            .filter((td) => td.textContent.trim() !== '' && isWrapped(td))
-            .map((td) => td.textContent.trim().slice(0, 14))
+          wrapped: [...tr.children].flatMap(wrappedTexts)
         }
       })
     }
@@ -267,7 +275,7 @@ if (state.fundCount === 0) {
 // ---- 5. 断言 --------------------------------------------------------------
 const HEADERS = [
   '大类',
-  '大类市值',
+  '大类汇总',
   '代码',
   '名称',
   '份额',
@@ -282,7 +290,7 @@ console.log(`持仓明细：${state.groups.length} 组 / ${state.groups.reduce((
 
 check(
   JSON.stringify(state.headers) === JSON.stringify(HEADERS),
-  '表头为 11 列且「大类 / 大类市值」在最前',
+  '表头为 11 列且「大类 / 大类汇总」在最前',
   `实际 ${state.headers.join('/')}`
 )
 
@@ -332,7 +340,7 @@ for (const g of state.groups) {
   const label = `「${g.lead[0]?.text}」`
   const n = String(g.rows.length)
   if (g.lead[0]?.rowSpan !== n) spanBad.push(`${label}大类 rowspan=${g.lead[0]?.rowSpan} ≠ ${n}`)
-  if (g.lead[1]?.rowSpan !== n) spanBad.push(`${label}大类市值 rowspan=${g.lead[1]?.rowSpan} ≠ ${n}`)
+  if (g.lead[1]?.rowSpan !== n) spanBad.push(`${label}大类汇总 rowspan=${g.lead[1]?.rowSpan} ≠ ${n}`)
   if (g.firstRowCells !== 11) spanBad.push(`${label}首行 ${g.firstRowCells} 格 ≠ 11`)
   if (g.otherRowCells.some((c) => c !== 9)) {
     spanBad.push(`${label}非首行格数 ${g.otherRowCells.join(',')} ≠ 9`)
@@ -344,7 +352,7 @@ check(spanBad.length === 0, '两个合并列 rowSpan = 组内行数；组内其�
 let styleBad = []
 for (const g of state.groups) {
   g.lead.forEach((c, i) => {
-    const col = i === 0 ? '大类' : '大类市值'
+    const col = i === 0 ? '大类' : '大类汇总'
     if (c?.bg !== 'rgb(242, 243, 245)') styleBad.push(`${col}底色 ${c?.bg}`)
     if (c?.valign !== 'middle') styleBad.push(`${col}垂直对齐 ${c?.valign}`)
   })
@@ -392,30 +400,30 @@ for (const g of state.groups) {
 }
 check(wrappedCells.length === 0, '默认窗口宽度下无单元格折行', wrappedCells.join('; '))
 
-// 大类市值 = Σ 组内明细市值（各显示值独立舍入，故留容差）
+// 大类汇总主行 = Σ 组内明细市值（各显示值独立舍入，故留容差；含真实金额，明细不回显）
 let groupMismatch = []
 for (const g of state.groups) {
   const shown = money(g.lead[1]?.text)
   const sum = g.rows.reduce((s, r) => s + (money(r.marketValue) ?? 0), 0)
   if (shown === null) {
     if (g.rows.every((r) => money(r.marketValue) === null)) continue // 全无净值 → 「—」正确
-    groupMismatch.push(`「${g.lead[0]?.text}」大类市值为「—」但组内有市值`)
+    groupMismatch.push(`「${g.lead[0]?.text}」大类汇总主行为「—」但组内有市值`)
     continue
   }
   if (Math.abs(shown - sum) > tol(g.rows.length)) {
-    groupMismatch.push(`「${g.lead[0]?.text}」大类市值 ${shown} ≠ 行合计 ${sum.toFixed(2)}`)
+    groupMismatch.push(`「${g.lead[0]?.text}」大类汇总主行与组内行合计不符（${g.rows.length} 行）`)
   }
 }
-check(groupMismatch.length === 0, '大类市值 = Σ 组内明细市值', groupMismatch.join('; '))
+check(groupMismatch.length === 0, '大类汇总主行 = Σ 组内明细市值', groupMismatch.join('; '))
 
-// Σ 大类市值 == 顶部总资产卡
+// Σ 大类汇总主行 == 顶部总资产卡
 const sumGroups = state.groups.reduce((s, g) => s + (money(g.lead[1]?.text) ?? 0), 0)
 const totalAssets = money(state.totalAssetsText)
 const allRows = state.groups.reduce((s, g) => s + g.rows.length, 0)
 check(
   totalAssets !== null && Math.abs(sumGroups - totalAssets) <= tol(state.groups.length + allRows),
-  'Σ 大类市值 == 顶部总资产',
-  `Σ大类市值 ${sumGroups.toFixed(2)} vs 总资产 ${state.totalAssetsText}`
+  'Σ 大类汇总主行 == 顶部总资产',
+  totalAssets === null ? '' : '口径一致'
 )
 
 // 真实库副本经升级后首次启动：v1 → v2 应自动删列并留备份
@@ -510,7 +518,7 @@ if (failures.length > 0) {
   process.exit(1)
 }
 for (const g of state.groups) {
-  console.log(`  「${g.lead[0]?.text}」${g.rows.length} 行，大类市值 ${g.lead[1]?.text}`)
+  console.log(`  「${g.lead[0]?.text}」${g.rows.length} 行（大类汇总主行已校验）`)
 }
 console.log(`GREEN: 概览持仓明细按大类分组全部断言通过（console 消息 ${logs.length} 条）`)
 console.log(`截图: ${shotPath}`)

@@ -1,11 +1,11 @@
 import type { SummaryData, SummaryScope } from '../../../engine'
 import { useSummaryScope } from '../hooks/useSummaryScope'
+import { MERGED_BUY_HINT } from '../utils/annualized'
 import { formatMoney, formatPercent } from '../utils/format'
 import { pnlClass } from '../utils/pnl'
 
-/** 年化收益率的已知失真（挂卡片 tooltip）：合并买入记录会拉长持有期，使年化偏低 */
-const ANNUALIZED_HINT =
-  '年化收益率基于你填写的买入日期计算；把多笔买入合并成一条记录会拉长持有期，使年化偏低。'
+/** 年化收益率的已知失真（挂卡片 tooltip）：因果说明与持仓明细脚注共用 MERGED_BUY_HINT */
+const ANNUALIZED_HINT = `年化收益率基于你填写的买入日期计算；${MERGED_BUY_HINT}，使年化收益率偏低。`
 
 const SCOPE_LABEL: Record<SummaryScope, string> = {
   all: '全部基金',

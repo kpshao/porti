@@ -228,6 +228,39 @@ function groupMarketValue(rows: FundPosition[]): number | null {
   return rows.reduce((sum, p) => sum + (p.marketValue ?? 0), 0)
 }
 
+/** 组内所有在持持仓的市值都已知：大类指标的共享守卫——任一市值未知时两项皆空，
+ *  不展示残缺汇总（与逐基金列「有成本、无净值 → —」一致）。 */
+function allMarketValuesKnown(rows: FundPosition[]): boolean {
+  return rows.every((p) => p.marketValue !== null)
+}
+
+/** 大类盈亏比例 = Σ持仓盈亏 ÷ Σ持仓成本（仅组内在持持仓，与逐基金「盈亏比例」同一公式）。
+ *  组内任一持仓市值未知 → null（见 allMarketValuesKnown）；持仓成本合计 ≤ 0 → null（比例无定义）。 */
+function groupPnlRatio(rows: FundPosition[]): number | null {
+  if (!allMarketValuesKnown(rows)) return null
+  let pnl = 0
+  let costBasis = 0
+  for (const p of rows) {
+    pnl += p.pnl ?? 0
+    costBasis += p.costBasis
+  }
+  return costBasis <= 0 ? null : pnl / costBasis
+}
+
+/** 大类年化收益率（XIRR）：现金流取组内基金代码集合的全部流水（含清仓重建前的历史），
+ *  期末估值 = 组内当前市值之和；组内任一市值未知 → null（与大类盈亏比例同一守卫）。 */
+function groupAnnualized(
+  rows: FundPosition[],
+  transactions: Transaction[],
+  today: string
+): number | null {
+  if (!allMarketValuesKnown(rows)) return null
+  const codes = new Set(rows.map((p) => p.fundCode))
+  const scoped = transactions.filter((t) => codes.has(t.fundCode))
+  const terminal = rows.reduce((sum, p) => sum + (p.marketValue ?? 0), 0)
+  return annualizedReturn(scoped, terminal, today)
+}
+
 /** 是否在持：份额 > 0 才算是一个仓位。份额 ≤ 0 的是已清仓（归零）或超卖（负份额数据错误），
  *  两者都不该出现在按大类分的持仓里，也不该参与投入比例。 */
 function isHeld(p: FundPosition): boolean {
@@ -237,8 +270,13 @@ function isHeld(p: FundPosition): boolean {
 /** 持仓明细的大类分组（概览页表格的组织方式）。规则：
  *  只纳入在持持仓（见 isHeld），过滤后为空的大类不产生组；
  *  已清仓持仓不在此，由 groupClosedPositions 收成表尾一组；
- *  组序按 CATEGORIES 声明顺序，兜底组「其他」恒定置底；组内按基金代码升序（见 byFundCode）。 */
-export function groupPositionsByCategory(positions: FundPosition[]): PositionGroup[] {
+ *  组序按 CATEGORIES 声明顺序，兜底组「其他」恒定置底；组内按基金代码升序（见 byFundCode）。
+ *  大类指标只统计组内在持持仓；组内任一市值未知时大类盈亏比例与大类年化收益率两项皆空。 */
+export function groupPositionsByCategory(
+  positions: FundPosition[],
+  transactions: Transaction[],
+  today: string
+): PositionGroup[] {
   const buckets = new Map<string, FundPosition[]>()
   for (const p of positions) {
     if (!isHeld(p)) continue
@@ -252,7 +290,13 @@ export function groupPositionsByCategory(positions: FundPosition[]): PositionGro
     const rows = buckets.get(category)
     if (rows === undefined) continue
     rows.sort(byFundCode)
-    groups.push({ category, marketValue: groupMarketValue(rows), positions: rows })
+    groups.push({
+      category,
+      marketValue: groupMarketValue(rows),
+      pnlRatio: groupPnlRatio(rows),
+      annualized: groupAnnualized(rows, transactions, today),
+      positions: rows
+    })
   }
   return groups
 }
@@ -272,7 +316,8 @@ function hasTraded(p: FundPosition): boolean {
 export function groupClosedPositions(positions: FundPosition[]): PositionGroup | null {
   const rows = positions.filter((p) => !isHeld(p) && hasTraded(p)).sort(byFundCode)
   if (rows.length === 0) return null
-  return { category: CLOSED_CATEGORY, marketValue: null, positions: rows }
+  // 已清仓组不是资产大类，没有大类收益指标：两项恒为空
+  return { category: CLOSED_CATEGORY, marketValue: null, pnlRatio: null, annualized: null, positions: rows }
 }
 
 /** 大类配置对比：目标比例 / 实际投入比例 / 实际市值占比 / 偏离。
@@ -522,6 +567,28 @@ function cashFlowOf(t: Transaction): { flow: XirrCashFlow | null; netCostDelta: 
   return { flow: null, netCostDelta: 0 }
 }
 
+/** 共享年化求根入口（整体年化与大类年化收益率共用，现金流归一化与守卫公式只此一处）：
+ *  流水 → 归一化现金流与净投入；无流水、首笔流水（任意类型）不足 30 天、净投入 ≤ 0 → null；
+ *  否则以调用方给定的期末估值求 XIRR。期末估值按统计范围求和（整体 = 全部在持市值；大类 = 组内在持市值）。 */
+function annualizedReturn(
+  transactions: Transaction[],
+  terminalValue: number,
+  today: string
+): number | null {
+  if (transactions.length === 0) return null
+  const firstTxDate = transactions.reduce((min, t) => (t.date < min ? t.date : min), transactions[0].date)
+  if (daysBetween(firstTxDate, today) < 30) return null
+  const flows: XirrCashFlow[] = []
+  let netCost = 0
+  for (const t of transactions) {
+    const { flow, netCostDelta } = cashFlowOf(t)
+    if (flow !== null) flows.push(flow)
+    netCost += netCostDelta
+  }
+  if (netCost <= 0) return null
+  return xirr(flows, terminalValue, today)
+}
+
 /** 单基金年化：现金流（买入流出/卖出流入/分红现金流入）+ 期末估值 = 当前份额 × 最新净值 */
 function annualizedForFund(
   fundCode: string,
@@ -558,19 +625,10 @@ export function computeTotalAnnualizedReturn(
   navPoints: NavPoint[],
   today: string
 ): number | null {
-  if (transactions.length === 0) return null
-  const firstTxDate = transactions.reduce((min, t) => (t.date < min ? t.date : min), transactions[0].date)
-  if (daysBetween(firstTxDate, today) < 30) return null
-  const flows: XirrCashFlow[] = []
-  let netCost = 0
   const sharesByFund = new Map<string, number>()
   for (const t of transactions) {
-    const { flow, netCostDelta } = cashFlowOf(t)
-    if (flow !== null) flows.push(flow)
-    netCost += netCostDelta
     sharesByFund.set(t.fundCode, (sharesByFund.get(t.fundCode) ?? 0) + (t.shares ?? 0))
   }
-  if (netCost <= 0) return null
   let terminal = 0
   for (const [fundCode, shares] of sharesByFund) {
     if (shares <= 0) continue
@@ -578,7 +636,7 @@ export function computeTotalAnnualizedReturn(
     if (nav === null) continue
     terminal += shares * nav.nav
   }
-  return xirr(flows, terminal, today)
+  return annualizedReturn(transactions, terminal, today)
 }
 
 /** 口径化汇总入口：按统计范围返回 Totals 与整体年化收益率。

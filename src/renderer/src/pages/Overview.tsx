@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { CLOSED_CATEGORY } from '../../../engine'
 import type { OverviewData } from '../../../main/overviewTypes'
 import FundDetail from '../components/FundDetail'
 import SummaryCards from '../components/SummaryCards'
+import { MERGED_BUY_HINT } from '../utils/annualized'
 import { formatMoney, formatNav, formatPercent, formatShares } from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
 import { pnlClass } from '../utils/pnl'
@@ -39,6 +41,16 @@ function InlineNumberEdit(props: {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
       }}
     />
+  )
+}
+
+/** 组汇总子指标行：短标签 + 百分比；null（无定义）显示「—」且不着色 */
+function GroupMetricRow(props: { label: string; value: number | null }): React.JSX.Element {
+  return (
+    <div className="group-summary-sub">
+      <span className="group-summary-label">{props.label}</span>
+      <span className={pnlClass(props.value)}>{formatPercent(props.value)}</span>
+    </div>
   )
 }
 
@@ -125,7 +137,7 @@ export default function Overview(): React.JSX.Element {
                 <thead>
                   <tr>
                     <th>大类</th>
-                    <th>大类市值</th>
+                    <th>大类汇总</th>
                     <th>代码</th>
                     <th>名称</th>
                     <th>份额</th>
@@ -137,7 +149,7 @@ export default function Overview(): React.JSX.Element {
                     <th>年化收益率</th>
                   </tr>
                 </thead>
-                {/* 每个大类一个 tbody：首两列（大类 / 大类市值）只在组内第一行渲染并 rowSpan 合并到整组 */}
+                {/* 每个大类一个 tbody：首两列（大类 / 大类汇总）只在组内第一行渲染并 rowSpan 合并到整组 */}
                 {groupsToShow.map((group) => (
                   <tbody key={group.category}>
                     {group.positions.map((p, rowIndex) => {
@@ -150,7 +162,14 @@ export default function Overview(): React.JSX.Element {
                                 {group.category}
                               </td>
                               <td className="group-cell" rowSpan={group.positions.length}>
-                                {formatMoney(group.marketValue)}
+                                <div className="group-summary-main">{formatMoney(group.marketValue)}</div>
+                                {/* 已清仓组不是资产大类：只显示一个「—」，不渲染两条大类指标 */}
+                                {group.category !== CLOSED_CATEGORY && (
+                                  <>
+                                    <GroupMetricRow label="盈亏比例" value={group.pnlRatio} />
+                                    <GroupMetricRow label="年化收益率" value={group.annualized} />
+                                  </>
+                                )}
                               </td>
                             </>
                           )}
@@ -180,6 +199,7 @@ export default function Overview(): React.JSX.Element {
           )}
           <p className="muted">
             点击基金名称可查看基金详情与收益走势。
+            {`大类汇总：大类盈亏比例 = 组内持仓盈亏合计 ÷ 持仓成本合计（不含卖出/分红的已实现盈亏）；大类年化收益率 = 组内在持基金的 XIRR。${MERGED_BUY_HINT}，使大类年化收益率偏低。`}
             {closedGroup !== null &&
               '已清仓基金（交易过后份额归零）默认不显示——它们是数据不是仓位，需要回顾战绩时用上方开关找回。'}
           </p>

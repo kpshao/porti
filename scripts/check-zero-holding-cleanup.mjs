@@ -314,7 +314,7 @@ if (closedFunds.length === 0) {
   check(after.groups.length > 1 && after.toggleActive, '开关打开后处于激活态')
   check(
     closedGroup?.headMarketValue === '—',
-    '已清仓组头「大类市值」显示「—」（无在持份额即无市值口径）',
+    '已清仓组头「大类汇总」显示「—」（无在持份额即无市值口径）',
     `实为「${closedGroup?.headMarketValue}」`
   )
 
