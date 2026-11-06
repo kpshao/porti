@@ -26,7 +26,6 @@ export interface FundInput {
   name: string
   category: string
   fundType: string | null
-  targetAmount: number | null
 }
 
 /** 基金代码归一化：6 位补零字符串；无法识别返回 null（importer 共用） */
@@ -111,14 +110,12 @@ export function normalizeFundInput(input: FundInput): Fund {
   if (!(CATEGORIES as readonly string[]).includes(input.category.trim())) {
     errors.push(`资产大类需为：${CATEGORIES.join('/')}`)
   }
-  if (input.targetAmount !== null && input.targetAmount < 0) errors.push('目标金额不能为负')
   if (errors.length > 0) fail(...errors)
 
   return {
     code: code!,
     name: input.name.trim(),
     category: input.category.trim(),
-    fundType: input.fundType === null || input.fundType.trim() === '' ? null : input.fundType.trim(),
-    targetAmount: input.targetAmount
+    fundType: input.fundType === null || input.fundType.trim() === '' ? null : input.fundType.trim()
   }
 }

@@ -42,7 +42,6 @@ function mkPosition(
     name: fundCode,
     category,
     fundType: null,
-    targetAmount: null,
     invested: 0,
     redeemed: 0,
     netCost: 0,
@@ -59,11 +58,11 @@ function mkPosition(
 // ---------- Golden fixtures：取自 投资跟踪.xlsx 持仓概览的真实数据 ----------
 
 const goldenFunds: Fund[] = [
-  { code: '110017', name: '易方达增强回报债券A', category: '固守+', fundType: '二级债基', targetAmount: 70000 },
-  { code: '002009', name: '中欧瑾通A', category: '固守+', fundType: '偏债混合', targetAmount: 60000 },
-  { code: '512890', name: '华泰柏瑞红利低波ETF', category: '权益', fundType: '红利ETF', targetAmount: 50000 },
-  { code: '000217', name: '华安黄金ETF联接C', category: '黄金', fundType: '黄金', targetAmount: 40000 },
-  { code: '007824', name: '天弘弘择短债债券C', category: '流动性', fundType: '短债', targetAmount: 40000 }
+  { code: '110017', name: '易方达增强回报债券A', category: '固守+', fundType: '二级债基' },
+  { code: '002009', name: '中欧瑾通A', category: '固守+', fundType: '偏债混合' },
+  { code: '512890', name: '华泰柏瑞红利低波ETF', category: '权益', fundType: '红利ETF' },
+  { code: '000217', name: '华安黄金ETF联接C', category: '黄金', fundType: '黄金' },
+  { code: '007824', name: '天弘弘择短债债券C', category: '流动性', fundType: '短债' }
 ]
 
 const goldenTransactions: Transaction[] = [
@@ -169,7 +168,7 @@ describe('computePositions — Excel golden values（持仓概览 5 只基金逐
 })
 
 describe('卖出与分红现金', () => {
-  const fund: Fund = { code: '999001', name: '测试基金', category: '权益', fundType: null, targetAmount: null }
+  const fund: Fund = { code: '999001', name: '测试基金', category: '权益', fundType: null }
   const transactions: Transaction[] = [
     { date: '2026-01-01', type: '买入', fundCode: '999001', amount: 2000, shares: 1000, nav: 2, fee: 0, note: null },
     { date: '2026-02-01', type: '卖出', fundCode: '999001', amount: -1100, shares: -500, nav: 2.2, fee: 0, note: null },
@@ -203,7 +202,7 @@ describe('卖出与分红现金', () => {
 })
 
 describe('边界情况', () => {
-  const fund: Fund = { code: '999002', name: '空基金', category: '纯债', fundType: null, targetAmount: null }
+  const fund: Fund = { code: '999002', name: '空基金', category: '纯债', fundType: null }
 
   it('无任何流水：零持仓，收益率保护为 null', () => {
     const [p] = computePositions([fund], [], [])
@@ -242,9 +241,9 @@ describe('大类配置对比', () => {
   it('投入比例/市值占比/偏离计算正确', () => {
     // 在持（份额 > 0）——投入比例只统计这类持仓
     const positions = [
-      { fundCode: 'A', name: 'A', category: '固守+', fundType: null, targetAmount: null, invested: 300, redeemed: 0, netCost: 300, costBasis: 300, shares: 300, latestNav: null, latestNavDate: null, marketValue: 330, pnl: 30, pnlRatio: 0.1 },
-      { fundCode: 'B', name: 'B', category: '权益', fundType: null, targetAmount: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 110, pnl: 10, pnlRatio: 0.1 },
-      { fundCode: 'C', name: 'C', category: '黄金', fundType: null, targetAmount: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 100, pnl: 0, pnlRatio: 0 }
+      { fundCode: 'A', name: 'A', category: '固守+', fundType: null, invested: 300, redeemed: 0, netCost: 300, costBasis: 300, shares: 300, latestNav: null, latestNavDate: null, marketValue: 330, pnl: 30, pnlRatio: 0.1 },
+      { fundCode: 'B', name: 'B', category: '权益', fundType: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 110, pnl: 10, pnlRatio: 0.1 },
+      { fundCode: 'C', name: 'C', category: '黄金', fundType: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 100, pnl: 0, pnlRatio: 0 }
     ]
     const targets: CategoryTarget[] = [
       { category: '固守+', targetRatio: 0.25 },
@@ -481,8 +480,8 @@ describe('已清仓分组（持仓明细表尾单独一组）', () => {
 
 describe('总市值时间序列与周收益', () => {
   const funds: Fund[] = [
-    { code: 'A', name: '基金A', category: '权益', fundType: null, targetAmount: null },
-    { code: 'B', name: '基金B', category: '权益', fundType: null, targetAmount: null }
+    { code: 'A', name: '基金A', category: '权益', fundType: null },
+    { code: 'B', name: '基金B', category: '权益', fundType: null }
   ]
   const transactions: Transaction[] = [
     { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
@@ -523,8 +522,8 @@ describe('总市值时间序列与周收益', () => {
 
 describe('收益统计时间序列（含卖出与分红现金，期望值手算）', () => {
   const funds: Fund[] = [
-    { code: 'A', name: '基金A', category: '权益', fundType: null, targetAmount: null },
-    { code: 'B', name: '基金B', category: '权益', fundType: null, targetAmount: null }
+    { code: 'A', name: '基金A', category: '权益', fundType: null },
+    { code: 'B', name: '基金B', category: '权益', fundType: null }
   ]
   const transactions: Transaction[] = [
     { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
@@ -606,7 +605,7 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
 })
 
 describe('单基金收益走势（computeFundSeries，手算黄金值）', () => {
-  const fund: Fund = { code: 'A', name: '基金A', category: '权益', fundType: null, targetAmount: null }
+  const fund: Fund = { code: 'A', name: '基金A', category: '权益', fundType: null }
   const nav = (date: string, value: number): NavPoint => ({ fundCode: 'A', date, nav: value, source: 'import' })
 
   it('单笔买入 + 两日净值上涨：收益率 =（市值 − 成本）/ 成本', () => {
@@ -783,8 +782,7 @@ describe('严格成本法 — 移动加权平均', () => {
     code,
     name: `基金${code}`,
     category,
-    fundType: null,
-    targetAmount: null
+    fundType: null
   })
 
   it('多次买入均价 + 部分卖出获利', () => {

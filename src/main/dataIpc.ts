@@ -39,7 +39,7 @@ import { loadSettings, saveDbPath, saveMigrationPromptDismissed } from './settin
 import { createFund, createTransaction, deleteTransaction, updateTransaction } from './transactionService'
 import { getFetchStatus, runNavFetch, upsertManualNav } from './navService'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from './navTypes'
-import { updateCategoryTarget, updateFundTargetAmount } from './targetService'
+import { updateCategoryTarget } from './targetService'
 import type { OverviewData } from './overviewTypes'
 import type { StatsData } from './statsTypes'
 import type { FundDetailData } from './fundDetailTypes'
@@ -155,10 +155,6 @@ export function registerDataIpc(): void {
 
   ipcMain.handle('target:update-category', (_event, category: string, targetRatio: number): void => {
     updateCategoryTarget(getDb(), category, targetRatio)
-  })
-
-  ipcMain.handle('fund:update-target', (_event, code: string, targetAmount: number | null): void => {
-    updateFundTargetAmount(getDb(), code, targetAmount)
   })
 
   // ---------- 收益统计页：时间序列（总资产/累计收益/周收益）+ 单基金盈亏排序 ----------

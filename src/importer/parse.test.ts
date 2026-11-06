@@ -10,23 +10,23 @@ const FIXTURE = join(process.cwd(), '投资跟踪.xlsx')
 const result = parseExcelFile(FIXTURE)
 
 describe('parseExcelFile — 真实投资跟踪.xlsx 黄金验收', () => {
-  it('10 只基金全部导入，类别/类型/目标金额正确', () => {
+  it('10 只基金全部导入，类别/类型正确', () => {
     expect(result.summary.fundCount).toBe(10)
     expect(result.funds).toHaveLength(10)
     const byCode = new Map(result.funds.map((f) => [f.code, f]))
 
     expect(byCode.get('519680')).toMatchObject({
-      name: '交银增利债券A', category: '纯债', fundType: '一级债基', targetAmount: 180000
+      name: '交银增利债券A', category: '纯债', fundType: '一级债基'
     })
     expect(byCode.get('007824')).toMatchObject({
-      name: '天弘弘择短债债券C', category: '流动性', fundType: '短债', targetAmount: 40000
+      name: '天弘弘择短债债券C', category: '流动性', fundType: '短债'
     })
     expect(byCode.get('000217')).toMatchObject({
-      name: '华安黄金ETF联接C', category: '黄金', fundType: '黄金', targetAmount: 40000
+      name: '华安黄金ETF联接C', category: '黄金', fundType: '黄金'
     })
-    // 未出现在持仓概览的基金：类型回退映射大类，目标金额为空
+    // 未出现在持仓概览的基金：类型回退映射大类
     expect(byCode.get('000385')).toMatchObject({
-      name: '景顺长城景颐双利A', category: '固守+', fundType: '二级债基', targetAmount: null
+      name: '景顺长城景颐双利A', category: '固守+', fundType: '二级债基'
     })
   })
 

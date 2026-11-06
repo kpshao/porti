@@ -9,7 +9,7 @@
 //  C. 复用 B 的 profile 重启：不再弹引导（跳过标记持久化）
 // 导出/导入涉及原生对话框，不在无头断言范围（迁移包内容一致性由 migrationService 单元测试覆盖）。
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import Database from 'better-sqlite3'
@@ -23,7 +23,8 @@ const ELECTRON_BIN =
     ? join(ROOT, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
     : join(ROOT, 'node_modules/electron/dist/electron')
 
-// 与 src/main/schema.ts 一致的建表语句（仅测试夹具用）
+// v1 夹具：保留已被删除的 target_amount 列并标记 user_version = 1，
+// 用于验证升级后首次启动会自动删列迁移。
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS funds (
   code TEXT PRIMARY KEY,
@@ -235,6 +236,17 @@ async function shotWithState(session, label, file) {
   await checkSettingsCard(s, 'A')
   await shotWithState(s, 'A 场景', 'porti-migration-check-a.png')
   await s.kill()
+
+  // 升级后首次启动：v1 库应自动删列、升到版本 2，并在删列前留一份备份
+  const migrated = new Database(join(profileA, 'porti.db'), { readonly: true })
+  const columns = migrated.prepare('PRAGMA table_info(funds)').all().map((c) => c.name)
+  const version = migrated.pragma('user_version', { simple: true })
+  migrated.close()
+  if (columns.includes('target_amount')) problems.push('A: 启动后 target_amount 列仍在')
+  if (version !== 2) problems.push(`A: 启动后数据版本应为 2，实际 ${version}`)
+  if (!readdirSync(profileA).some((f) => f.startsWith('porti.db.bak-'))) {
+    problems.push('A: 删列前未生成 .bak 备份')
+  }
 }
 
 // ---- 5. 场景 B：空库 → 弹引导 → 稍后再说 → 标记落盘 ------------------------

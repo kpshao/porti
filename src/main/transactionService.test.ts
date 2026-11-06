@@ -13,7 +13,7 @@ function freshDb(): Database.Database {
 }
 
 function seedFund(db: Database.Database): void {
-  createFund(db, { code: '000001', name: '测试基金', category: '权益', fundType: null, targetAmount: null })
+  createFund(db, { code: '000001', name: '测试基金', category: '权益', fundType: null })
 }
 
 const buy: TransactionInput = {
@@ -23,11 +23,11 @@ const buy: TransactionInput = {
 describe('createFund — 新建基金', () => {
   it('代码补前导零后入库', () => {
     const db = freshDb()
-    createFund(db, { code: '2065', name: '补零基金', category: '固守+', fundType: '二级债基', targetAmount: null })
+    createFund(db, { code: '2065', name: '补零基金', category: '固守+', fundType: '二级债基' })
     const funds = selectFunds(db)
     expect(funds).toHaveLength(1)
     expect(funds[0]).toMatchObject({
-      code: '002065', name: '补零基金', category: '固守+', fundType: '二级债基', targetAmount: null
+      code: '002065', name: '补零基金', category: '固守+', fundType: '二级债基'
     })
   })
 
@@ -35,7 +35,7 @@ describe('createFund — 新建基金', () => {
     const db = freshDb()
     seedFund(db)
     expect(() =>
-      createFund(db, { code: '000001', name: '重复', category: '权益', fundType: null, targetAmount: null })
+      createFund(db, { code: '000001', name: '重复', category: '权益', fundType: null })
     ).toThrow(/已存在/)
   })
 })

@@ -164,7 +164,6 @@ export function computePositions(
       name: fund.name,
       category: fund.category,
       fundType: fund.fundType,
-      targetAmount: fund.targetAmount,
       invested,
       redeemed,
       netCost,

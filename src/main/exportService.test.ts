@@ -19,9 +19,9 @@ function num(v: number, z: string): { v: number; z: string } {
   return { v, z }
 }
 
-function insertFund(db: Database.Database, code: string, name: string, category: string, targetAmount: number | null): void {
-  db.prepare('INSERT INTO funds (code, name, category, target_amount, created_at) VALUES (?,?,?,?,?)').run(
-    code, name, category, targetAmount, '2026-01-01'
+function insertFund(db: Database.Database, code: string, name: string, category: string): void {
+  db.prepare('INSERT INTO funds (code, name, category, created_at) VALUES (?,?,?,?)').run(
+    code, name, category, '2026-01-01'
   )
 }
 
@@ -38,8 +38,8 @@ function insertTx(db: Database.Database, date: string, type: string, code: strin
  *  - 汇总：总资产 26589.4895、总盈亏 3189.4895、总收益率 13.6302…%、已实现盈亏 60、总收益 3249.4895
  */
 function seedDb(db: Database.Database): Database.Database {
-  insertFund(db, '000001', '测试权益', '权益', 100000)
-  insertFund(db, '002065', '固收增强', '固守+', null)
+  insertFund(db, '000001', '测试权益', '权益')
+  insertFund(db, '002065', '固收增强', '固守+')
   db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run('固守+', 0.25)
   db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run('权益', 0.20)
   insertTx(db, '2026-01-15', '买入', '000001', 1000, 100, 10, 2, null)
@@ -107,33 +107,33 @@ describe('buildExportData — 概览表', () => {
     expect(summary[5]).toEqual(['净投入成本', num(23400, '0.00')])
   })
 
-  it('持仓明细与手算一致：金额 2 位、净值 4 位、盈亏比例为百分比数字、空目标金额为空单元格', () => {
+  it('持仓明细与手算一致：金额 2 位、净值 4 位、盈亏比例为百分比数字', () => {
     const sheets = buildExportData(seedDb(freshDb()))
     const ov = sheetByName(sheets, '概览')
 
     expect(ov.rows[8]).toEqual(['持仓明细'])
     expect(ov.rows[9]).toEqual([
-      '基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)', '目标金额'
+      '基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)'
     ])
 
     const [a, b] = ov.rows.slice(10, 12)
     expect(a).toEqual([
-      '000001', '测试权益', '权益', num(300, '0.00'), num(3400, '0.00'), num(12.5, '0.0000'), num(3750, '0.00'), num(350, '0.00'), num(10.29, '0.00'), num(100000, '0.00')
+      '000001', '测试权益', '权益', num(300, '0.00'), num(3400, '0.00'), num(12.5, '0.0000'), num(3750, '0.00'), num(350, '0.00'), num(10.29, '0.00')
     ])
     expect(b).toEqual([
-      '002065', '固收增强', '固守+', num(18500, '0.00'), num(20000, '0.00'), num(1.2346, '0.0000'), num(22839.49, '0.00'), num(2839.49, '0.00'), num(14.2, '0.00'), ''
+      '002065', '固收增强', '固守+', num(18500, '0.00'), num(20000, '0.00'), num(1.2346, '0.0000'), num(22839.49, '0.00'), num(2839.49, '0.00'), num(14.2, '0.00')
     ])
   })
 
   it('持仓明细只列在持持仓：已清仓与超卖负份额都不列（与概览页同一口径）', () => {
     const db = seedDb(freshDb())
     // 000217：买入 1000 份后全部卖出 → 已清仓（份额归零，净值仍在）
-    insertFund(db, '000217', '测试黄金', '黄金', null)
+    insertFund(db, '000217', '测试黄金', '黄金')
     insertTx(db, '2026-05-01', '买入', '000217', 5000, 1000, 5, null, null)
     insertTx(db, '2026-05-20', '卖出', '000217', -6000, -1000, 6, null, null)
     db.prepare('INSERT INTO nav_history (fund_code, date, nav, source) VALUES (?,?,?,?)').run('000217', '2026-05-20', 6, 'manual')
     // 999999：卖出多于买入 → 超卖（份额为负，数据错误）
-    insertFund(db, '999999', '测试超卖', '权益', null)
+    insertFund(db, '999999', '测试超卖', '权益')
     insertTx(db, '2026-06-01', '买入', '999999', 1000, 100, 10, null, null)
     insertTx(db, '2026-06-02', '卖出', '999999', -2200, -200, 11, null, null)
     db.prepare('INSERT INTO nav_history (fund_code, date, nav, source) VALUES (?,?,?,?)').run('999999', '2026-06-02', 11, 'manual')
@@ -164,7 +164,7 @@ describe('buildExportData — 空库', () => {
     expect(ov.rows[1]).toEqual(['总资产', num(0, '0.00')])
     expect(ov.rows[3]).toEqual(['总收益率(%)', ''])
     expect(ov.rows[9]).toEqual([
-      '基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)', '目标金额'
+      '基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)'
     ])
     expect(sheetByName(sheets, '流水').rows).toHaveLength(1)
     expect(sheetByName(sheets, '净值').rows).toHaveLength(1)

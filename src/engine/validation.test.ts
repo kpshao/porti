@@ -103,17 +103,16 @@ describe('isValidDateString', () => {
 
 describe('normalizeFundInput — 新建基金', () => {
   it('代码补前导零至 6 位', () => {
-    const f = normalizeFundInput({ code: '2065', name: '测试基金', category: '固守+', fundType: null, targetAmount: null })
+    const f = normalizeFundInput({ code: '2065', name: '测试基金', category: '固守+', fundType: null })
     expect(f.code).toBe('002065')
   })
 
-  it('名称必填、大类须为封闭集合、目标金额非负', () => {
-    const baseFund: FundInput = { code: '000001', name: '测试基金', category: '固守+', fundType: null, targetAmount: null }
+  it('名称必填、大类须为封闭集合', () => {
+    const baseFund: FundInput = { code: '000001', name: '测试基金', category: '固守+', fundType: null }
     expect(() => normalizeFundInput({ ...baseFund, code: 'abc' })).toThrow(/基金代码/)
     expect(() => normalizeFundInput({ ...baseFund, name: '' })).toThrow(/名称/)
     expect(() => normalizeFundInput({ ...baseFund, category: '' })).toThrow(/资产大类/)
     expect(() => normalizeFundInput({ ...baseFund, category: '股票' })).toThrow(/资产大类/)
-    expect(() => normalizeFundInput({ ...baseFund, targetAmount: -1 })).toThrow(/目标金额/)
     // 五个标准大类均通过
     for (const c of ['固守+', '纯债', '权益', '黄金', '流动性']) {
       expect(normalizeFundInput({ ...baseFund, category: c }).category).toBe(c)

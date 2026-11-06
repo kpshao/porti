@@ -109,9 +109,8 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
     fundMap.set(code, { name: name || code, fundType: r[2] == null ? null : String(r[2]).trim() })
   }
 
-  // ---------- 持仓概览 → 大类/目标金额/目标比例/当前净值/对账基准 ----------
+  // ---------- 持仓概览 → 大类/目标比例/当前净值/对账基准 ----------
   const categoryByCode = new Map<string, string>()
-  const targetAmountByCode = new Map<string, number | null>()
   const currentNavByCode = new Map<string, number>()
   const categoryTargetMap = new Map<string, number>()
   const fundExpectations: FundExpectation[] = []
@@ -140,7 +139,6 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
     if (code === null) continue
     const fundType = fundMap.get(code)?.fundType ?? null
     categoryByCode.set(code, currentCategory ?? (fundType !== null ? TYPE_TO_CATEGORY[fundType] : undefined) ?? '权益')
-    targetAmountByCode.set(code, toNumber(r[7]))
     const nav = toNumber(r[12])
     if (nav !== null) currentNavByCode.set(code, nav)
     fundExpectations.push({
@@ -347,8 +345,7 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
       categoryByCode.get(code) ??
       (f.fundType !== null ? TYPE_TO_CATEGORY[f.fundType] : undefined) ??
       '权益',
-    fundType: f.fundType,
-    targetAmount: targetAmountByCode.get(code) ?? null
+    fundType: f.fundType
   }))
 
   const expectation: ExcelExpectation = {

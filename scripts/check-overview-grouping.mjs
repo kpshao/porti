@@ -5,13 +5,14 @@
 //
 // 流程：npm run build -> 复制真实 porti.db 到临时 profile -> 启动 Electron -> CDP 断言
 // 概览持仓明细表的分组。断言口径见 .scratch/overview-group-by-category/spec.md。
+// 同一次启动顺带验证真实库副本 v1 → v2 升级（删 target_amount 列 + 生成 .bak 备份）。
 //
 // 退出码：0 = 通过（含 SKIP：无持仓数据）；1 = RED。
 //
 // 已知陷阱：窗口遮挡时 rAF 被节流（本页无图表，仍带旗标保持一致）；
 // 本机 shell 可能导出 ELECTRON_RUN_AS_NODE=1，spawn 前必须 delete，否则 Electron 退化为纯 Node。
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -67,6 +68,11 @@ if (hasRealData) {
 } else {
   console.log('提示：未找到真实数据库，断言将 SKIP')
 }
+
+// 升级验证：副本启动前若是 v1，启动后应自动删列、升到版本 2 并留备份
+const sourceVersion = existsSync(dbPath)
+  ? Number(spawnSync('sqlite3', [dbPath, 'PRAGMA user_version']).stdout.toString().trim())
+  : null
 
 // 独立事实来源：直接从库读 Fund.code -> category，用于交叉验证行落在正确的组里
 const fundCategory = new Map()
@@ -159,6 +165,9 @@ await new Promise((res, rej) => {
 })
 await send('Runtime.enable')
 await send('Page.enable')
+const windowInfo = await send('Browser.getWindowForTarget', { targetId: pageTarget.id }).catch(
+  () => null
+)
 await send('Page.reload', { ignoreCache: true })
 await new Promise((r) => setTimeout(r, 1500))
 
@@ -201,8 +210,8 @@ const state = await evalJs(`(() => {
       firstRowCells: first ? first.children.length : 0,
       otherRowCells: trs.slice(1).map((tr) => tr.children.length),
       rows: trs.map((tr) => {
-        // 组内首行 12 格（含两个合并列），其余行 10 格；差值即偏移
-        const off = tr.children.length - 10
+        // 组内首行 11 格（含两个合并列），其余行 9 格；差值即偏移
+        const off = tr.children.length - 9
         return {
           code: tr.children[off]?.textContent?.trim() ?? '',
           marketValue: tr.children[off + 5]?.textContent?.trim() ?? '',
@@ -216,11 +225,26 @@ const state = await evalJs(`(() => {
   const totalStat = [...document.querySelectorAll('.summary-card .stat')].find(
     (s) => s.querySelector('.stat-label')?.textContent === '总资产'
   )
+  const wrap = table.parentElement?.classList.contains('table-scroll-x') ? table.parentElement : null
+  const wrapRect = wrap?.getBoundingClientRect() ?? null
+  const cardRect = card.getBoundingClientRect()
   return {
     headers,
     groups,
     totalAssetsText: totalStat?.querySelector('.stat-value')?.textContent?.trim() ?? null,
-    fundCount: document.querySelectorAll('.fund-link').length
+    fundCount: document.querySelectorAll('.fund-link').length,
+    tableScroll:
+      wrap === null
+        ? null
+        : {
+            scrollWidth: wrap.scrollWidth,
+            clientWidth: wrap.clientWidth,
+            scrollHeight: wrap.scrollHeight,
+            clientHeight: wrap.clientHeight,
+            right: wrapRect.right,
+            cardRight: cardRect.right,
+            overflowX: getComputedStyle(wrap).overflowX
+          }
   }
 })()`)
 
@@ -252,15 +276,32 @@ const HEADERS = [
   '市值',
   '持仓盈亏',
   '盈亏比例',
-  '年化收益率',
-  '目标金额（元）'
+  '年化收益率'
 ]
 console.log(`持仓明细：${state.groups.length} 组 / ${state.groups.reduce((s, g) => s + g.rows.length, 0)} 行`)
 
 check(
   JSON.stringify(state.headers) === JSON.stringify(HEADERS),
-  '表头为 12 列且「大类 / 大类市值」在最前',
+  '表头为 11 列且「大类 / 大类市值」在最前',
   `实际 ${state.headers.join('/')}`
+)
+
+const scroll = state.tableScroll
+check(scroll !== null, '持仓明细表有横向滚动容器', scroll === null ? '缺少 .table-scroll-x' : '')
+check(
+  scroll !== null && scroll.scrollWidth <= scroll.clientWidth + 1,
+  '默认窗口下不产生横向滚动',
+  scroll ? `${scroll.scrollWidth} vs ${scroll.clientWidth}` : ''
+)
+check(
+  scroll !== null && scroll.right <= scroll.cardRight + 0.5,
+  '滚动容器在卡片内',
+  scroll ? `右缘 ${scroll.right.toFixed(1)} vs 卡片 ${scroll.cardRight.toFixed(1)}` : ''
+)
+check(
+  scroll !== null && scroll.scrollHeight <= scroll.clientHeight + 1,
+  '持仓明细表未被纵向裁切',
+  scroll ? `${scroll.scrollHeight} vs ${scroll.clientHeight}` : ''
 )
 
 const names = state.groups.map((g) => g.lead[0]?.text ?? null)
@@ -292,9 +333,9 @@ for (const g of state.groups) {
   const n = String(g.rows.length)
   if (g.lead[0]?.rowSpan !== n) spanBad.push(`${label}大类 rowspan=${g.lead[0]?.rowSpan} ≠ ${n}`)
   if (g.lead[1]?.rowSpan !== n) spanBad.push(`${label}大类市值 rowspan=${g.lead[1]?.rowSpan} ≠ ${n}`)
-  if (g.firstRowCells !== 12) spanBad.push(`${label}首行 ${g.firstRowCells} 格 ≠ 12`)
-  if (g.otherRowCells.some((c) => c !== 10)) {
-    spanBad.push(`${label}非首行格数 ${g.otherRowCells.join(',')} ≠ 10`)
+  if (g.firstRowCells !== 11) spanBad.push(`${label}首行 ${g.firstRowCells} 格 ≠ 11`)
+  if (g.otherRowCells.some((c) => c !== 9)) {
+    spanBad.push(`${label}非首行格数 ${g.otherRowCells.join(',')} ≠ 9`)
   }
 }
 check(spanBad.length === 0, '两个合并列 rowSpan = 组内行数；组内其余行不含这两列', spanBad.join('; '))
@@ -342,7 +383,7 @@ for (const g of state.groups) {
 }
 check(orderBad.length === 0, '组内按基金代码升序', orderBad.join('; '))
 
-// 默认窗口宽度下不应有任何单元格折行（12 列曾把基金名称与「大类」挤断行）
+// 默认窗口宽度下不应有任何单元格折行（曾因 12 列把基金名称与「大类」挤断行）
 const wrappedCells = []
 for (const g of state.groups) {
   for (const r of g.rows) {
@@ -376,6 +417,89 @@ check(
   'Σ 大类市值 == 顶部总资产',
   `Σ大类市值 ${sumGroups.toFixed(2)} vs 总资产 ${state.totalAssetsText}`
 )
+
+// 真实库副本经升级后首次启动：v1 → v2 应自动删列并留备份
+if (sourceVersion === 1) {
+  const version = Number(
+    spawnSync('sqlite3', [dbPath, 'PRAGMA user_version']).stdout.toString().trim()
+  )
+  const columns = spawnSync('sqlite3', [dbPath, 'PRAGMA table_info(funds)'])
+    .stdout.toString()
+    .split('\n')
+    .map((line) => line.split('|')[1])
+    .filter(Boolean)
+  check(version === 2, '真实库副本启动后数据版本升到 2', `实际 ${version}`)
+  check(!columns.includes('target_amount'), '真实库副本启动后 target_amount 列已删除', columns.join('/'))
+  const backups = readdirSync(profileDir).filter((f) => f.startsWith('porti.db.bak-'))
+  check(backups.length > 0, '删列前生成了 .bak 备份', backups.join(', '))
+}
+
+// 窄窗口（minWidth 960）：表格在卡片内横向滚动，不得溢出卡片
+let narrowReady = false
+if (windowInfo) {
+  narrowReady = await send('Browser.setWindowBounds', {
+    windowId: windowInfo.windowId,
+    bounds: { width: 960, height: 800 }
+  })
+    .then(() => true)
+    .catch(() => false)
+}
+if (!narrowReady) {
+  // Electron 下 Browser.getWindowForTarget 常不可用：用视口模拟等价于窗口缩到 960
+  narrowReady = await send('Emulation.setDeviceMetricsOverride', {
+    width: 960,
+    height: 800,
+    deviceScaleFactor: 1,
+    mobile: false
+  })
+    .then(() => true)
+    .catch(() => false)
+}
+if (!narrowReady) {
+  console.log('提示：无法调整视口，跳过窄窗口断言')
+} else {
+  await new Promise((r) => setTimeout(r, 800))
+  const narrow = await evalJs(`(() => {
+    const card = [...document.querySelectorAll('.card')].find(
+      (c) => c.querySelector('h2')?.textContent === '持仓明细'
+    )
+    const wrap = card?.querySelector('.table-scroll-x')
+    if (!wrap) return { error: 'no-wrapper' }
+    const w = wrap.getBoundingClientRect()
+    const c = card.getBoundingClientRect()
+    return {
+      overflowX: getComputedStyle(wrap).overflowX,
+      scrollWidth: wrap.scrollWidth,
+      clientWidth: wrap.clientWidth,
+      inside: w.right <= c.right + 0.5,
+      wrapRight: w.right,
+      cardRight: c.right
+    }
+  })()`)
+  if (!narrow || narrow.error) {
+    check(false, '窄窗口下仍能找到滚动容器', narrow?.error ?? 'evaluate 返回空')
+  } else {
+    check(narrow.overflowX === 'auto', '窄窗口：滚动容器裁剪溢出内容', `overflow-x=${narrow.overflowX}`)
+    check(
+      narrow.inside,
+      '窄窗口：滚动容器仍在卡片内',
+      `容器右缘 ${narrow.wrapRight.toFixed(1)} vs 卡片 ${narrow.cardRight.toFixed(1)}`
+    )
+    check(
+      narrow.scrollWidth > narrow.clientWidth,
+      '窄窗口：被裁列可通过横向滚动访问',
+      `${narrow.scrollWidth} > ${narrow.clientWidth}`
+    )
+  }
+  if (windowInfo) {
+    await send('Browser.setWindowBounds', {
+      windowId: windowInfo.windowId,
+      bounds: { width: 1280, height: 800 }
+    }).catch(() => {})
+  } else {
+    await send('Emulation.clearDeviceMetricsOverride').catch(() => {})
+  }
+}
 
 for (const l of logs) console.error(`  console: ${l}`)
 

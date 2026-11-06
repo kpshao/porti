@@ -1,8 +1,7 @@
-// SQLite 数据模型（与 .scratch/porti-v1/spec.md 一致）。
-// 独立成模块以便测试用 :memory: 数据库复用同一 schema。
+// SQLite 数据模型。独立成模块以便测试用 :memory: 数据库复用同一 schema。
 
-/** 当前 schema 版本（PRAGMA user_version）；换机迁移按它校验/预留升级路径 */
-export const SCHEMA_VERSION = 1
+/** 当前 schema 版本（PRAGMA user_version）；版本间迁移见 schemaMigration.ts */
+export const SCHEMA_VERSION = 2
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS funds (
@@ -10,7 +9,6 @@ CREATE TABLE IF NOT EXISTS funds (
   name TEXT NOT NULL,             -- 基金简称
   category TEXT NOT NULL,         -- 资产大类：固守+/纯债/权益/黄金/流动性
   fund_type TEXT,                 -- 基金类型：一级债基/二级债基/偏债混合/ETF/黄金/短债等
-  target_amount REAL,             -- 单只基金目标金额（元），可空
   created_at TEXT NOT NULL
 );
 

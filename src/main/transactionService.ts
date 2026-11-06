@@ -9,8 +9,8 @@ export function createFund(db: Database.Database, input: FundInput): Fund {
   const exists = db.prepare('SELECT 1 FROM funds WHERE code = ?').get(fund.code)
   if (exists !== undefined) throw new Error(`基金代码 ${fund.code} 已存在`)
   db.prepare(
-    'INSERT INTO funds (code, name, category, fund_type, target_amount, created_at) VALUES (?,?,?,?,?,?)'
-  ).run(fund.code, fund.name, fund.category, fund.fundType, fund.targetAmount, new Date().toISOString())
+    'INSERT INTO funds (code, name, category, fund_type, created_at) VALUES (?,?,?,?,?)'
+  ).run(fund.code, fund.name, fund.category, fund.fundType, new Date().toISOString())
   return fund
 }
 

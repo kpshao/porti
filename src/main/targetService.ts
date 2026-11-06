@@ -1,9 +1,8 @@
-// 配置目标编辑服务：大类目标比例、单只基金目标金额（数据访问层 + 领域校验）
+// 配置目标编辑服务：大类目标比例（数据访问层 + 领域校验）
 
 import type Database from 'better-sqlite3'
 import { CATEGORIES } from '../engine'
 import type { CategoryTarget } from '../engine'
-import { ensureFundExists } from './transactionService'
 
 /** 默认大类目标（ticket #06 验收值；Excel 导入会用导入值覆盖） */
 export const DEFAULT_CATEGORY_TARGETS: CategoryTarget[] = [
@@ -34,13 +33,4 @@ export function updateCategoryTarget(db: Database.Database, category: string, ta
     category,
     targetRatio
   )
-}
-
-/** 更新单只基金目标金额（null 表示清空） */
-export function updateFundTargetAmount(db: Database.Database, fundCode: string, targetAmount: number | null): void {
-  ensureFundExists(db, fundCode)
-  if (targetAmount !== null && (!Number.isFinite(targetAmount) || targetAmount < 0)) {
-    throw new Error('目标金额不能为负')
-  }
-  db.prepare('UPDATE funds SET target_amount = ? WHERE code = ?').run(targetAmount, fundCode)
 }

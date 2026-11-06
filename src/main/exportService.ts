@@ -75,7 +75,7 @@ function overviewSheet(
       ['净投入成本', money(totals.totalNetCost)],
       [],
       ['持仓明细'],
-      ['基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)', '目标金额'],
+      ['基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)'],
       // 与概览页持仓明细同一口径：只列在持持仓（份额 > 0）；已清仓与超卖负份额都不列（它们在概览页的「已清仓」组里）
       ...positions
         .filter((p) => p.shares > 0)
@@ -88,8 +88,7 @@ function overviewSheet(
           nav4(p.latestNav),
           money(p.marketValue),
           money(p.pnl),
-          percent(p.pnlRatio),
-          money(p.targetAmount)
+          percent(p.pnlRatio)
         ]),
       [],
       ['大类配置对比'],

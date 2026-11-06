@@ -32,7 +32,6 @@ declare global {
       navFetchStatus: () => Promise<FetchStatus>
       overviewData: () => Promise<OverviewData>
       targetUpdateCategory: (category: string, targetRatio: number) => Promise<void>
-      fundUpdateTarget: (code: string, targetAmount: number | null) => Promise<void>
       statsData: () => Promise<StatsData>
       fundDetailData: (fundCode: string, range: FundSeriesRange) => Promise<FundDetailData>
       exportExcel: () => Promise<{ path: string } | null>

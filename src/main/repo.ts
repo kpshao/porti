@@ -5,14 +5,13 @@ import type { CategoryTarget, Fund, NavPoint, Transaction, TransactionRow } from
 
 export function selectFunds(db: Database.Database): Fund[] {
   const rows = db
-    .prepare('SELECT code, name, category, fund_type, target_amount FROM funds ORDER BY code')
-    .all() as { code: string; name: string; category: string; fund_type: string | null; target_amount: number | null }[]
+    .prepare('SELECT code, name, category, fund_type FROM funds ORDER BY code')
+    .all() as { code: string; name: string; category: string; fund_type: string | null }[]
   return rows.map((r) => ({
     code: r.code,
     name: r.name,
     category: r.category,
-    fundType: r.fund_type,
-    targetAmount: r.target_amount
+    fundType: r.fund_type
   }))
 }
 

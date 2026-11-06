@@ -18,7 +18,7 @@ export function importToDb(db: Database.Database, plan: CommitPayload): ImportCo
 
   const now = new Date().toISOString()
   const insertFund = db.prepare(
-    'INSERT INTO funds (code, name, category, fund_type, target_amount, created_at) VALUES (?,?,?,?,?,?)'
+    'INSERT INTO funds (code, name, category, fund_type, created_at) VALUES (?,?,?,?,?)'
   )
   const insertTarget = db.prepare(
     'INSERT OR REPLACE INTO category_targets (category, target_ratio) VALUES (?,?)'
@@ -37,7 +37,7 @@ export function importToDb(db: Database.Database, plan: CommitPayload): ImportCo
 
   db.transaction(() => {
     for (const f of plan.funds) {
-      insertFund.run(f.code, f.name, f.category, f.fundType, f.targetAmount, now)
+      insertFund.run(f.code, f.name, f.category, f.fundType, now)
     }
     for (const t of plan.categoryTargets) {
       insertTarget.run(t.category, t.targetRatio)

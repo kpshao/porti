@@ -28,8 +28,6 @@ const api = {
   overviewData: (): Promise<OverviewData> => ipcRenderer.invoke('overview:data'),
   targetUpdateCategory: (category: string, targetRatio: number): Promise<void> =>
     ipcRenderer.invoke('target:update-category', category, targetRatio),
-  fundUpdateTarget: (code: string, targetAmount: number | null): Promise<void> =>
-    ipcRenderer.invoke('fund:update-target', code, targetAmount),
   statsData: (): Promise<StatsData> => ipcRenderer.invoke('stats:data'),
   fundDetailData: (fundCode: string, range: FundSeriesRange): Promise<FundDetailData> =>
     ipcRenderer.invoke('fund-detail:data', fundCode, range),

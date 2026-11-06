@@ -3,7 +3,7 @@ import Database from 'better-sqlite3'
 import { computeCategoryComparison, computePositions } from '../engine'
 import { SCHEMA } from './schema'
 import { selectCategoryTargets, selectFunds, selectNavPoints, selectTransactions } from './repo'
-import { seedDefaultCategoryTargets, updateCategoryTarget, updateFundTargetAmount } from './targetService'
+import { seedDefaultCategoryTargets, updateCategoryTarget } from './targetService'
 import { createFund } from './transactionService'
 
 /** 测试辅助：从库内数据计算持仓（引擎输入） */
@@ -18,7 +18,7 @@ function freshDb(): Database.Database {
 }
 
 function seedFund(db: Database.Database): void {
-  createFund(db, { code: '000001', name: '基金甲', category: '权益', fundType: null, targetAmount: 10000 })
+  createFund(db, { code: '000001', name: '基金甲', category: '权益', fundType: null })
 }
 
 describe('seedDefaultCategoryTargets — 默认目标种子（ticket 默认值）', () => {
@@ -91,23 +91,5 @@ describe('updateCategoryTarget — 大类目标比例编辑', () => {
     expect(after.find((r) => r.category === '权益')?.targetRatio).toBeCloseTo(0.5)
     const marketRatio = after.find((r) => r.category === '权益')!.marketRatio!
     expect(after.find((r) => r.category === '权益')!.deviation).toBeCloseTo(marketRatio - 0.5, 9)
-  })
-})
-
-describe('updateFundTargetAmount — 单只基金目标金额编辑', () => {
-  it('设置与清空目标金额', () => {
-    const db = freshDb()
-    seedFund(db)
-    updateFundTargetAmount(db, '000001', 20000)
-    expect(selectFunds(db)[0].targetAmount).toBe(20000)
-    updateFundTargetAmount(db, '000001', null) // 清空
-    expect(selectFunds(db)[0].targetAmount).toBeNull()
-  })
-
-  it('非法输入给出中文错误：负金额、基金不存在', () => {
-    const db = freshDb()
-    seedFund(db)
-    expect(() => updateFundTargetAmount(db, '000001', -1)).toThrow(/不能为负/)
-    expect(() => updateFundTargetAmount(db, '999999', 100)).toThrow(/不存在/)
   })
 })

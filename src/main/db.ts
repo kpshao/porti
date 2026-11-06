@@ -3,6 +3,7 @@ import { dirname, join } from 'path'
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { SCHEMA, SCHEMA_VERSION } from './schema'
+import { migrateDatabase } from './schemaMigration'
 import { loadSettings } from './settingsStore'
 import { seedDefaultCategoryTargets } from './targetService'
 import { replaceDbFile } from './migrationService'
@@ -20,6 +21,15 @@ export function initDatabase(): void {
   db.pragma('foreign_keys = ON')
   const version = db.pragma('user_version', { simple: true }) as number
   if (version < SCHEMA_VERSION) {
+    if (version > 0) {
+      try {
+        migrateDatabase(db, version)
+      } catch (e) {
+        // 迁移失败（如备份盘满）：保留旧 schema，下次启动重试。代码不读被删列，旧库照常可用。
+        console.error('数据库迁移失败，本次保持旧版本：', e)
+        return
+      }
+    }
     db.exec(SCHEMA)
     seedDefaultCategoryTargets(db) // 新库种子默认大类目标（Excel 导入会用导入值覆盖）
     db.pragma(`user_version = ${SCHEMA_VERSION}`)

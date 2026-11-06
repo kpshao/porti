@@ -128,8 +128,7 @@ export default function TransactionForm({
       code,
       name: fundNameInput.trim(),
       category: fundCategory,
-      fundType: fundTypeInput.trim() === '' ? null : fundTypeInput.trim(),
-      targetAmount: null
+      fundType: fundTypeInput.trim() === '' ? null : fundTypeInput.trim()
     }
     setFundBusy(true)
     try {

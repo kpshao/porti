@@ -13,8 +13,8 @@ function freshDb(): Database.Database {
 }
 
 function seedFunds(db: Database.Database): void {
-  createFund(db, { code: '000001', name: '基金甲', category: '权益', fundType: null, targetAmount: null })
-  createFund(db, { code: '000002', name: '基金乙', category: '纯债', fundType: null, targetAmount: null })
+  createFund(db, { code: '000001', name: '基金甲', category: '权益', fundType: null })
+  createFund(db, { code: '000002', name: '基金乙', category: '纯债', fundType: null })
 }
 
 describe('upsertManualNav — 手动补录净值', () => {

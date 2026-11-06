@@ -3,7 +3,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
-import { SCHEMA } from './schema'
+import { SCHEMA, SCHEMA_VERSION } from './schema'
 import {
   createMigrationBundle,
   readMigrationMeta,
@@ -21,10 +21,10 @@ function seedFileDb(path: string): Database.Database {
   const db = new Database(path)
   db.pragma('journal_mode = WAL')
   db.exec(SCHEMA)
-  db.pragma('user_version = 1')
+  db.pragma(`user_version = ${SCHEMA_VERSION}`)
   db.prepare(
-    `INSERT INTO funds (code, name, category, fund_type, target_amount, created_at)
-     VALUES ('002065', '测试基金', '固守+', NULL, NULL, '2026-01-01')`
+    `INSERT INTO funds (code, name, category, fund_type, created_at)
+     VALUES ('002065', '测试基金', '固守+', NULL, '2026-01-01')`
   ).run()
   db.prepare(
     `INSERT INTO transactions (date, type, fund_code, amount, shares, nav, note, created_at, updated_at)
@@ -43,7 +43,7 @@ describe('migrationService — 迁移包（.portibak）生成/校验/替换', ()
     source.close()
 
     expect(meta.appVersion).toBe('0.1.0')
-    expect(meta.schemaVersion).toBe(1)
+    expect(meta.schemaVersion).toBe(SCHEMA_VERSION)
     expect(meta.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
 
     const readBack = readMigrationMeta(bundlePath)
@@ -82,7 +82,7 @@ describe('migrationService — 迁移包（.portibak）生成/校验/替换', ()
     await createMigrationBundle(source, bundlePath, '0.1.0')
     source.close()
 
-    const result = validateMigrationBundle(bundlePath, 1)
+    const result = validateMigrationBundle(bundlePath, SCHEMA_VERSION)
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.info.meta.appVersion).toBe('0.1.0')
@@ -96,7 +96,7 @@ describe('migrationService — 迁移包（.portibak）生成/校验/替换', ()
     const dir = tempDir()
     const junk = join(dir, 'junk.portibak')
     writeFileSync(junk, '这不是数据库', 'utf8')
-    const result = validateMigrationBundle(junk, 1)
+    const result = validateMigrationBundle(junk, SCHEMA_VERSION)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('数据库文件')
   })
@@ -105,7 +105,7 @@ describe('migrationService — 迁移包（.portibak）生成/校验/替换', ()
     const dir = tempDir()
     const plain = join(dir, 'plain.portibak')
     seedFileDb(plain).close()
-    const result = validateMigrationBundle(plain, 1)
+    const result = validateMigrationBundle(plain, SCHEMA_VERSION)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('迁移元信息')
   })
@@ -113,12 +113,12 @@ describe('migrationService — 迁移包（.portibak）生成/校验/替换', ()
   it('校验拒绝：由更新版本导出（schema 版本高于当前）', async () => {
     const dir = tempDir()
     const source = seedFileDb(join(dir, 'source.db'))
-    source.pragma('user_version = 2')
+    source.pragma(`user_version = ${SCHEMA_VERSION + 1}`)
     const bundlePath = join(dir, 'bundle.portibak')
     await createMigrationBundle(source, bundlePath, '0.1.0')
     source.close()
 
-    const result = validateMigrationBundle(bundlePath, 1)
+    const result = validateMigrationBundle(bundlePath, SCHEMA_VERSION)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('更新版本')
   })
@@ -132,7 +132,7 @@ describe('migrationService — 迁移包（.portibak）生成/校验/替换', ()
 
     const full = readFileSync(bundlePath)
     writeFileSync(bundlePath, full.subarray(0, Math.floor(full.length / 2)))
-    const result = validateMigrationBundle(bundlePath, 1)
+    const result = validateMigrationBundle(bundlePath, SCHEMA_VERSION)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toContain('损坏')
   })
@@ -145,8 +145,8 @@ describe('migrationService — 迁移包（.portibak）生成/校验/替换', ()
     const source = seedFileDb(join(dir, 'source.db'))
     source
       .prepare(
-        `INSERT INTO funds (code, name, category, fund_type, target_amount, created_at)
-         VALUES ('002066', '第二只', '纯债', NULL, NULL, '2026-01-01')`
+        `INSERT INTO funds (code, name, category, fund_type, created_at)
+         VALUES ('002066', '第二只', '纯债', NULL, '2026-01-01')`
       )
       .run()
     const bundlePath = join(dir, 'bundle.portibak')

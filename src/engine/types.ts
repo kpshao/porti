@@ -15,7 +15,6 @@ export interface Fund {
   name: string
   category: string // 资产大类：固守+/纯债/权益/黄金/流动性
   fundType: string | null
-  targetAmount: number | null
 }
 
 /** 交易流水。库内约定：卖出金额与份额均存负值；分红现金份额为空。 */
@@ -57,7 +56,6 @@ export interface FundPosition {
   name: string
   category: string
   fundType: string | null
-  targetAmount: number | null
   invested: number // 累计买入金额
   redeemed: number // 累计赎回金额（非负）
   netCost: number // 累计净投入 = 累计买入 − 累计赎回（大类对比与总收益率分母用）

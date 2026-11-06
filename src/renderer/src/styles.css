@@ -278,12 +278,20 @@ body {
   font-weight: 600;
 }
 
-/* 概览持仓明细 12 列，默认窗口（1280）内容区约 1020px 而内容需约 1090px——
-   在 .table 之上再收紧横向空间，否则基金名称与「大类」会被挤断行。
-   窗口缩到 minWidth(960) 时仍会折行，那是接受的降级。 */
+/* 概览持仓明细：11 列在默认窗口（1280）下按 8px 横向内边距刚好放得下，
+   10px 会多出约 32px 溢出卡片。窗口更窄时由 .table-scroll-x 在卡片内横向滚动承接。 */
+.card-positions {
+  container-type: inline-size;
+}
+
+.table-scroll-x {
+  overflow-x: auto;
+}
+
 .table-positions th,
 .table-positions td {
-  padding: 8px 6px;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 /* 组标签永不折行：「固守+」断成「固守 / +」在任何宽度下都是错的 */
@@ -291,8 +299,21 @@ body {
   white-space: nowrap;
 }
 
-.table-positions .inline-edit {
-  width: 88px;
+/* 基金名称是表内唯一会变长的自由文本：优先给它整词宽度，数字列让出余量，
+   避免默认窗口下长名称折行（数字列都短、有富余）。 */
+.table-positions .fund-link {
+  white-space: nowrap;
+}
+
+/* 卡片内宽不足以放下 11 列时，允许表头与名称折行，减少横向滚动量 */
+@container (max-width: 1006px) {
+  .table-positions th {
+    white-space: normal;
+  }
+
+  .table-positions .fund-link {
+    white-space: normal;
+  }
 }
 
 .fix-list {
@@ -524,7 +545,7 @@ body {
   margin-bottom: 8px;
 }
 
-/* 表格行内编辑（概览页目标金额/目标比例） */
+/* 表格行内编辑（概览页目标比例） */
 .inline-edit {
   border: 1px solid #c9cdd4;
   border-radius: 4px;
