@@ -201,11 +201,11 @@ const assertColored = (where, stat) => {
   console.log(`  ${where}「${stat.label}」= ${stat.value} → ${actual} ✓`)
 }
 
-/** 交易流水页仍是单行卡片区（概览页已改两行，序列见下） */
-const TX_LABELS = ['总资产', '持仓盈亏', '累计收益率', '年化收益率', '已实现盈亏']
-/** 概览页两行版式后的标签序列（第一行结果 + 第二行分解，见 issues/03-overview-total-return-card.md）；
+/** 两页共用同一个汇总卡片组件后的统一标签序列（第一行结果 + 第二行分解）。
  *  与 scripts/check-overview-total-return-card.mjs 的 ROW1+ROW2 是同一份真相，版式改动请两处同步。 */
-const OVERVIEW_LABELS = ['总资产', '总收益', '累计收益率', '年化收益率', '持仓盈亏', '已实现盈亏']
+const CARD_LABELS = ['总资产', '总收益', '累计收益率', '年化收益率', '持仓盈亏', '已实现盈亏']
+const TX_LABELS = CARD_LABELS
+const OVERVIEW_LABELS = CARD_LABELS
 
 const assertNoLegacyTerm = (where, text) => {
   if (text.includes('落袋')) {

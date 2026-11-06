@@ -311,6 +311,19 @@ console.log('  导入完成：对账全部一致 ✓')
 
 // ---- 5. 概览查看（golden 值取自投资跟踪.xlsx 对账基准）-------------------------
 await clickNav('概览')
+// 汇总卡片默认「在持基金」；GOLDEN 是改动前的全量口径（含已清仓基金），先切到「全部基金」
+const overviewAllScope = await waitFor(
+  () =>
+    evaluate(`(() => {
+      const btn = [...document.querySelectorAll('.scope-switch-btn')].find((b) => b.textContent.trim() === '全部基金')
+      if (!btn) return false
+      if (btn.getAttribute('aria-pressed') === 'true') return true
+      btn.click()
+      return false
+    })()`).catch(() => false),
+  15000
+)
+if (!overviewAllScope) fail('概览页未能切到「全部基金」口径（GOLDEN 为全量口径）')
 const stats = await evaluate(`(() => {
   const out = {}
   for (const s of document.querySelectorAll('.stat')) {
@@ -366,6 +379,19 @@ await shot('overview.png')
 
 // ---- 6. 改流水：修改备注 → 断言列表更新 → 还原 ---------------------------------
 await clickNav('交易流水')
+// GOLDEN 为全量口径：流水页卡片同样先切到「全部基金」
+const txAllScope = await waitFor(
+  () =>
+    evaluate(`(() => {
+      const btn = [...document.querySelectorAll('.scope-switch-btn')].find((b) => b.textContent.trim() === '全部基金')
+      if (!btn) return false
+      if (btn.getAttribute('aria-pressed') === 'true') return true
+      btn.click()
+      return false
+    })()`).catch(() => false),
+  15000
+)
+if (!txAllScope) fail('交易流水页未能切到「全部基金」口径（GOLDEN 为全量口径）')
 const txStats = await evaluate(`(() => {
   const out = {}
   for (const s of document.querySelectorAll('.stat')) {
