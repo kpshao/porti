@@ -8,9 +8,9 @@ import {
   computeCategoryComparison,
   computeFundSeries,
   computePositions,
+  computeScopedSummary,
   computeStatsSeries,
   computeTimeSeries,
-  computeTotalAnnualizedReturn,
   computeTotals,
   costBasisStates,
   filterFundSeriesRange,
@@ -18,10 +18,11 @@ import {
   groupPositionsByCategory
 } from '../engine'
 import type {
-  AnnualizedReturnData,
   FundInput,
+  FundPosition,
   FundSeriesRange,
   NavPoint,
+  SummaryData,
   Transaction,
   TransactionInput
 } from '../engine'
@@ -77,7 +78,7 @@ export function registerDataIpc(): void {
   ipcMain.handle('tx:data', (): TxData => {
     const db = getDb()
     if (!hasAnyData(db)) {
-      return { funds: [], transactions: [], totals: null, positions: [], annualized: emptyAnnualized() }
+      return { funds: [], transactions: [], summary: null, positions: [] }
     }
     const funds = selectFunds(db)
     const transactions = selectTransactions(db)
@@ -86,9 +87,8 @@ export function registerDataIpc(): void {
     return {
       funds,
       transactions,
-      totals: computeTotals(positions, transactions),
-      positions,
-      annualized: computeAnnualizedData(transactions, navPoints)
+      summary: computeSummaryData(positions, transactions, navPoints),
+      positions
     }
   })
 
@@ -133,9 +133,8 @@ export function registerDataIpc(): void {
         funds: [],
         positionGroups: [],
         closedGroup: null,
-        totals: null,
-        comparison: [],
-        annualized: emptyAnnualized()
+        summary: null,
+        comparison: []
       }
     }
     const funds = selectFunds(db)
@@ -147,9 +146,8 @@ export function registerDataIpc(): void {
       funds,
       positionGroups: groupPositionsByCategory(positions),
       closedGroup: groupClosedPositions(positions),
-      totals: computeTotals(positions, transactions),
-      comparison,
-      annualized: computeAnnualizedData(transactions, navPoints)
+      summary: computeSummaryData(positions, transactions, navPoints),
+      comparison
     }
   })
 
@@ -179,15 +177,16 @@ export function registerDataIpc(): void {
     const funds = selectFunds(db)
     const transactions = selectTransactions(db)
     const navPoints = selectNavPoints(db)
+    const today = todayString()
     const series = filterFundSeriesRange(
       computeFundSeries(fundCode, funds, transactions, navPoints),
       range,
-      todayString()
+      today
     )
     const basis = costBasisStates(transactions).get(fundCode)
     return {
       position: computePositions(funds, transactions, navPoints).find((p) => p.fundCode === fundCode) ?? null,
-      annualized: computeAnnualizedData(transactions, navPoints).perFund[fundCode] ?? null,
+      annualized: computePerFundAnnualized(transactions, navPoints, today)[fundCode] ?? null,
       realizedIncome: basis === undefined ? 0 : basis.realizedGain + basis.cashDividends,
       series,
       events: transactions.filter((t) => t.fundCode === fundCode).map((t) => ({ date: t.date, type: t.type }))
@@ -322,17 +321,30 @@ function todayString(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-/** 年化收益率数据组装：单基金映射 + 整体（「今天」显式入参以保证口径可测） */
-function computeAnnualizedData(transactions: Transaction[], navPoints: NavPoint[]): AnnualizedReturnData {
+/** 汇总数据组装：同一组入参一次算好两种口径（all/held）与单基金年化映射。
+ *  两页共用，切换口径只换展示字段、不重新取数。 */
+function computeSummaryData(
+  positions: FundPosition[],
+  transactions: Transaction[],
+  navPoints: NavPoint[]
+): SummaryData {
   const today = todayString()
+  return {
+    all: computeScopedSummary('all', positions, transactions, navPoints, today),
+    held: computeScopedSummary('held', positions, transactions, navPoints, today),
+    perFund: computePerFundAnnualized(transactions, navPoints, today)
+  }
+}
+
+/** 单基金年化映射（持仓明细年化列与基金详情共用；「今天」显式入参以保证口径可测） */
+function computePerFundAnnualized(
+  transactions: Transaction[],
+  navPoints: NavPoint[],
+  today: string
+): Record<string, number | null> {
   const perFund: Record<string, number | null> = {}
   for (const [fundCode, value] of computeAnnualizedReturns(transactions, navPoints, today)) {
     perFund[fundCode] = value
   }
-  return { perFund, total: computeTotalAnnualizedReturn(transactions, navPoints, today) }
-}
-
-/** 空库时的年化数据（与无数据不渲染统计卡的口径一致） */
-function emptyAnnualized(): AnnualizedReturnData {
-  return { perFund: {}, total: null }
+  return perFund
 }
