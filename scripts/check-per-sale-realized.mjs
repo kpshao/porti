@@ -6,8 +6,9 @@
 // 流程：npm run build -> 复制真实 porti.db 到临时 profile -> 启动 Electron -> CDP 断言：
 //   1. 流水表卖出行「本笔已实现」逐笔 = 独立重算值；非卖出行留空
 //   2. Σ本笔已实现 + Σ分红现金 = 卡片「已实现盈亏」（CONTEXT.md 的恒等式，两处口径同源）
+//      该恒等式是「全部基金」全量口径，读卡片前先切到「全部基金」
 //   3. 新增一笔卖出：表单预览 = 独立重算值；保存后流水表该行 = 预览值；
-//      卡片「已实现盈亏」的增量 = 预览值，概览页卡片同步
+//      卡片「已实现盈亏」的增量 = 预览值，概览页卡片同步（仍在全量口径下比较）
 //
 // 独立事实来源：系统 sqlite3 直读库，脚本内自己走一遍移动加权平均（不复用 src/engine，
 // 避免同源同错）；DOM 只提供展示值——两者对不上就是 RED
@@ -260,6 +261,26 @@ const readStat = (label) =>
     return { value: v?.textContent?.trim() ?? '', classes: [...(v?.classList ?? [])] }
   })()`)
 
+/** 切到「全部基金」口径：本脚本的恒等式（Σ本笔已实现 + Σ分红现金 = 卡片值）
+ *  在全量口径下成立；卡片默认「在持基金」会漏掉已清仓基金的历史已实现。 */
+const selectAllScope = async (where) => {
+  const ok = await waitFor(
+    () =>
+      evalJs(`(() => {
+        const btn = [...document.querySelectorAll('.scope-switch-btn')].find(
+          (b) => b.textContent.trim() === '全部基金'
+        )
+        if (!btn) return false
+        if (btn.getAttribute('aria-pressed') === 'true') return true
+        btn.click()
+        return false
+      })()`),
+    5000
+  )
+  check(ok === true, `${where}已切到「全部基金」口径（脚本恒等式为全量口径）`)
+  await new Promise((r) => setTimeout(r, 300))
+}
+
 /** 读流水表：表头 + 每行（日期/类型/基金/金额/本笔已实现及着色类名） */
 const READ_TX_TABLE = `(() => {
   const table = [...document.querySelectorAll('table.table')].find(
@@ -293,6 +314,7 @@ const expectedClass = (text) => {
 
 // ---- 6. 切到交易流水页，逐笔对账 -------------------------------------------
 await goto('交易流水')
+await selectAllScope('交易流水页')
 const table = await evalJs(READ_TX_TABLE)
 if (table.error) {
   console.error(`RED: 未找到带「本笔已实现」列的流水表（${table.error}）`)
@@ -542,6 +564,7 @@ if (cardBefore !== null && cardAfter !== null) {
 
 // ---- 8. 概览页的累计值与流水页同源 -----------------------------------------
 await goto('概览')
+await selectAllScope('概览页')
 const overviewCard = await readStat('已实现盈亏')
 check(
   overviewCard !== null && cardAfter !== null && sameMoney(num(overviewCard.value) ?? NaN, num(cardAfter.value) ?? NaN),

@@ -214,7 +214,7 @@ const READ_POSITIONS = `(() => {
       headMarketValue: first?.children[1]?.textContent?.trim() ?? '',
       rowSpan: Number(first?.children[0]?.getAttribute('rowspan') ?? 0),
       rows: trs.map((tr) => {
-        const off = tr.children.length - 10 // 组内首行 12 格（两个合并列），其余 10 格
+        const off = tr.children.length - 9 // 组内首行 11 格（两个合并列），其余 9 格
         return {
           code: tr.children[off]?.textContent?.trim() ?? '',
           name: tr.children[off + 1]?.querySelector('.fund-link')?.textContent?.trim() ?? '',
@@ -353,7 +353,7 @@ if (closedFunds.length === 0) {
     const link = last?.querySelector('tr .fund-link')
     if (!link) return null
     const tr = link.closest('tr')
-    const code = tr.children[tr.children.length - 10]?.textContent?.trim() ?? ''
+    const code = tr.children[tr.children.length - 9]?.textContent?.trim() ?? ''
     link.click()
     return code
   })()`)

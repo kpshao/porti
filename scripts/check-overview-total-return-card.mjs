@@ -10,8 +10,9 @@
 //
 // 断言分三层：
 //   1) 版式——两行、标签序列、加减号与「= 总收益」尾注肉眼可见地成等式；
-//   2) 数值——DOM 显示值 vs window.api.overviewData() 的模型值（防渲染串字段），
-//      并当场用显示值手算「持仓盈亏 + 已实现盈亏 == 总收益」；
+//   2) 数值——DOM 显示值 vs window.api.overviewData().summary.held 的模型值
+//      （默认口径为「在持基金」；防渲染串字段），并当场用显示值手算
+//      「持仓盈亏 + 已实现盈亏 == 总收益」；
 //   3) 着色——总资产不着色，其余三张按显示值正负着色（红涨绿跌不从实现取，从文本符号判）。
 //
 // 退出码：0 = 通过（含 SKIP：库中无数据，卡片区不渲染）；1 = RED。
@@ -169,6 +170,21 @@ const evalAsync = async (expression) => {
   return result.value
 }
 
+// 主进程启动时会自动抓取最新净值并写库（不阻塞启动）。若卡片先按旧数据渲染、
+// 随后模型查询读到抓取后的新数据，DOM 与模型就会跨两次数据状态而产生假 RED；
+// 等抓取落定（ok/failed 均为终态）后重新加载，让两者基于同一份库。
+const navSettled = await waitFor(async () => {
+  try {
+    const status = await evalAsync('window.api.navFetchStatus()')
+    return status !== null && status.state !== 'running' && status.state !== 'idle'
+  } catch {
+    return false
+  }
+}, 30000)
+if (!navSettled) console.log('提示：等待启动净值抓取落定超时，继续断言')
+await send('Page.reload', { ignoreCache: true })
+await new Promise((r) => setTimeout(r, 1500))
+
 /** 读概览卡片区：行结构（标签 / 值 / 类名 / 运算符）+ 脚注 + 卡上 title */
 const READ_CARD = `(() => {
   const card = document.querySelector('.summary-card')
@@ -244,8 +260,11 @@ check(
 
 // ---- 6. 数值：DOM 显示值 vs 模型值、以及和自身的加法恒等 --------------------
 const model = await evalAsync('window.api.overviewData()')
-const totals = model?.totals ?? null
-check(totals !== null, 'window.api.overviewData() 拿得到汇总（DOM 有卡片就应有模型值）')
+// 卡片默认「在持基金」口径；这里同步断言 held 口径（口径切换本身由
+// scripts/check-summary-scope-toggle.mjs 覆盖）
+const summary = model?.summary?.held ?? null
+const totals = summary?.totals ?? null
+check(totals !== null, 'window.api.overviewData().summary.held 拿得到汇总（DOM 有卡片就应有模型值）')
 
 if (totals !== null) {
   const byLabel = (label) => [...row1, ...row2].find((s) => s.label === label)
@@ -255,7 +274,7 @@ if (totals !== null) {
     ['总资产', totals.totalAssets, 'money'],
     ['总收益', totals.totalReturn, 'money'],
     ['累计收益率', totals.totalReturnRate, 'percent'],
-    ['年化收益率', model?.annualized?.total ?? null, 'percent'],
+    ['年化收益率', summary?.annualized ?? null, 'percent'],
     ['持仓盈亏', totals.totalPnl, 'money'],
     ['已实现盈亏', totals.realizedIncome, 'money']
   ]
