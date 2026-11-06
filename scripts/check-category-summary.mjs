@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 持仓明细「大类汇总」组级指标端到端检查（零依赖：Node >= 22 全局 WebSocket/fetch + 系统 sqlite3）
+// 持仓明细「大类汇总」大类指标端到端检查（零依赖：Node >= 22 全局 WebSocket/fetch + 系统 sqlite3）
 //
 // 用法：node scripts/check-category-summary.mjs [--port 9333]
 //
@@ -7,10 +7,10 @@
 //       等启动自动抓取净值结束 -> 刷新页面 -> CDP 断言。断言口径见 spec #7。
 //
 // 断言：
-//   1. 默认窗口下持仓明细表无横向滚动，表头第二列为「大类汇总」；
-//   2. 每个在持大类组汇总格三行齐全（市值主行 + 「盈亏」+「年化」），子行不折行；
-//   3. 组盈亏比例 = 库内独立重算的 Σ持仓盈亏 ÷ Σ持仓成本（按显示精度留容差）；
-//   4. 组年化 = 库内独立重算的 XIRR（或两侧同为「—」）；
+//   1. 默认窗口下持仓明细表无横向滚动，表头第二列为「大类汇总」，表下脚注使用规范术语；
+//   2. 每个在持大类组汇总格三行齐全（市值主行 + 「盈亏比例」+「年化收益率」），子行不折行；
+//   3. 大类盈亏比例 = 库内独立重算的 Σ持仓盈亏 ÷ Σ持仓成本（按显示精度留容差）；
+//   4. 大类年化收益率 = 库内独立重算的 XIRR（或两侧同为「—」）；
 //   5. 打开「显示已清仓」后，表尾「已清仓」组汇总格只显示单个「—」，在持组数字不变；
 //   6. 控制台无异常。
 //
@@ -31,6 +31,8 @@ const ROOT = resolve(import.meta.dirname, '..')
 const PORT = process.argv.includes('--port') ? process.argv[process.argv.indexOf('--port') + 1] : '9333'
 const CDP = `http://127.0.0.1:${PORT}`
 
+// 组名常量在脚本内独立声明、不从应用代码导入（同 check-overview-grouping.mjs）：
+// 端到端检查要与实现互为交叉验证，共用常量会让实现改名/改序时断言跟着错，失去独立事实来源的意义。
 /** 与 src/engine/validation.ts 的 CATEGORIES 保持一致（消费方按此声明顺序排序） */
 const CATEGORIES = ['固守+', '纯债', '权益', '黄金', '流动性']
 /** 与 src/engine/compute.ts 的 OTHER_CATEGORY 保持一致 */
@@ -77,7 +79,7 @@ function daysBetween(a, b) {
   return (db - da) / 86400000
 }
 
-/** 组级 XIRR：现金流取组内基金全部流水、期末估值 = 组内当前市值。
+/** 大类 XIRR：现金流取组内基金全部流水、期末估值 = 组内当前市值。
  *  守卫与引擎一致：无流水、首笔流水不足 30 天、净投入 ≤ 0、无解 → null。 */
 function xirrOfGroup(transactions, codes, terminalValue, today) {
   const scoped = transactions.filter((t) => codes.has(t.fundCode))
@@ -146,7 +148,7 @@ if (build.status !== 0) {
 // ---- 2. 临时 profile：复制真实 DB（避免污染用户数据）----------------------
 const realDbDir = join(homedir(), 'Library/Application Support/porti')
 if (!existsSync(join(realDbDir, 'porti.db'))) {
-  console.log('SKIP: 未找到真实数据库，无法用库内独立重算交叉验证组级指标。')
+  console.log('SKIP: 未找到真实数据库，无法用库内独立重算交叉验证大类指标。')
   process.exit(0)
 }
 const profileDir = mkdtempSync(join(tmpdir(), 'porti-category-summary-check-'))
@@ -290,6 +292,7 @@ const READ_TABLE = `(() => {
   return {
     headers,
     groups,
+    footnote: card.querySelector('p.muted')?.textContent?.trim() ?? '',
     tableScroll:
       wrap === null
         ? null
@@ -328,7 +331,7 @@ function sqliteRows(sql) {
   throw new Error(lastErr)
 }
 
-// 独立事实来源：库内基金 / 流水 / 净值 → 成本基础、市值、组级盈亏比例与 XIRR
+// 独立事实来源：库内基金 / 流水 / 净值 → 成本基础、市值、大类盈亏比例与 XIRR
 let expectedGroups
 try {
   const funds = sqliteRows('SELECT code, category FROM funds').map((line) => {
@@ -456,7 +459,7 @@ const shotPath = join(tmpdir(), 'porti-category-summary.png') // 放 profile 外
 writeFileSync(shotPath, Buffer.from(shot.data, 'base64'))
 
 if (expectedGroups.length === 0) {
-  console.log('SKIP: 库中无在持持仓，无数据无法断言组级指标。')
+  console.log('SKIP: 库中无在持持仓，无数据无法断言大类指标。')
   cleanup()
   process.exit(0)
 }
@@ -479,6 +482,22 @@ check(
   state.headers.length === 11 && state.headers[1] === '大类汇总',
   '表头第二列为「大类汇总」',
   `实际 ${state.headers.join('/')}`
+)
+
+// 脚注必须用规范术语（CONTEXT.md：盈亏比例 / 大类盈亏比例 / 大类年化收益率），不得用短词
+const FOOTNOTE_TERMS = [
+  '大类盈亏比例',
+  '组内持仓盈亏合计 ÷ 持仓成本合计',
+  '不含卖出/分红的已实现盈亏',
+  '大类年化收益率',
+  '组内在持基金的 XIRR',
+  '合并买入记录会拉长持有期',
+  '使大类年化收益率偏低'
+]
+check(
+  FOOTNOTE_TERMS.every((term) => state.footnote.includes(term)),
+  '脚注按规范术语说明大类汇总口径',
+  state.footnote === '' ? '缺脚注' : ''
 )
 
 const scroll = state.tableScroll
@@ -508,12 +527,12 @@ for (const g of state.groups) {
   if (g.mainText === null) lineProblems.push(`「${g.name}」缺市值主行`)
   if (g.subCount !== 2) lineProblems.push(`「${g.name}」子指标行 ${g.subCount} 条 ≠ 2`)
   const labels = g.subs.map((s) => s.label)
-  if (JSON.stringify(labels) !== JSON.stringify(['盈亏', '年化'])) {
-    lineProblems.push(`「${g.name}」子指标标签 [${labels.join(',')}] 应为 [盈亏,年化]`)
+  if (JSON.stringify(labels) !== JSON.stringify(['盈亏比例', '年化收益率'])) {
+    lineProblems.push(`「${g.name}」子指标标签 [${labels.join(',')}] 应为 [盈亏比例,年化收益率]`)
   }
   const [pnlSub, annualSub] = g.subs
   if (pnlSub === undefined || annualSub === undefined) {
-    metricProblems.push(`「${g.name}」缺组级指标子行，无法比对`)
+    metricProblems.push(`「${g.name}」缺大类指标子行，无法比对`)
   }
   if (pnlSub && !samePercent(pnlSub.value, want.pnlRatio)) {
     metricProblems.push(
@@ -529,7 +548,7 @@ for (const g of state.groups) {
     if (sub.wrapped) wrapProblems.push(`「${g.name}」${sub.label}行折行`)
   }
 }
-check(lineProblems.length === 0, '每个在持组汇总格三行齐全（市值 / 盈亏 / 年化）', lineProblems.join('; '))
+check(lineProblems.length === 0, '每个在持组汇总格三行齐全（市值 / 盈亏比例 / 年化收益率）', lineProblems.join('; '))
 check(wrapProblems.length === 0, '组汇总子行不折行', wrapProblems.join('; '))
 check(
   metricProblems.length === 0,
@@ -555,10 +574,10 @@ if (toggle !== true) {
     )
     check(
       closed?.summaryText === '—' && closed?.subCount === 0,
-      '已清仓组汇总格只显示单个「—」（不渲染组级指标行）',
+      '已清仓组汇总格只显示单个「—」（不渲染大类指标行）',
       `实为「${closed?.summaryText}」（子行 ${closed?.subCount} 条）`
     )
-    // 已在持组的三行内容不因开关变化（已清仓基金不参与组级指标）
+    // 已在持组的三行内容不因开关变化（已清仓基金不参与大类指标）
     const heldBefore = new Map(state.groups.map((g) => [g.name, g.summaryText]))
     const changed = after.groups
       .filter((g) => g.name !== CLOSED_GROUP)
@@ -588,7 +607,7 @@ if (failures.length > 0) {
 for (const g of state.groups) {
   console.log(`  「${g.name}」${expectedByName.get(g.name)?.rowCount ?? '?'} 只：三行齐全，指标与库内重算一致`)
 }
-console.log('GREEN: 大类汇总组级指标全部断言通过')
+console.log('GREEN: 大类汇总指标全部断言通过')
 console.log(`截图: ${shotPath}`)
 cleanup()
 process.exit(0)

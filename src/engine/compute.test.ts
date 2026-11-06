@@ -57,9 +57,9 @@ function mkPosition(
   }
 }
 
-/** 既有分组用例的适配入口：这些用例不关心组级指标，流水 / 净值 / 今天给空值与固定日。 */
+/** 既有分组用例的适配入口：这些用例不关心大类指标，流水给空值、今天给固定日。 */
 function groupHeldPositions(positions: FundPosition[]): PositionGroup[] {
-  return groupPositionsByCategory(positions, [], [], '2026-01-01')
+  return groupPositionsByCategory(positions, [], '2026-01-01')
 }
 
 // ---------- Golden fixtures：取自 投资跟踪.xlsx 持仓概览的真实数据 ----------
@@ -487,7 +487,7 @@ describe('已清仓分组（持仓明细表尾单独一组）', () => {
   })
 })
 
-describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率）', () => {
+describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率）', () => {
   const TODAY = '2027-01-01'
   const fundOf = (code: string, category: string): Fund => ({
     code,
@@ -514,10 +514,10 @@ describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率�
     navs: NavPoint[]
   ): ReturnType<typeof groupPositionsByCategory> => {
     const positions = computePositions(funds, txs, navs)
-    return groupPositionsByCategory(positions, txs, navs, TODAY)
+    return groupPositionsByCategory(positions, txs, TODAY)
   }
 
-  it('组级盈亏比例 = Σ持仓盈亏 ÷ Σ持仓成本（多基金加权，不是各基金比例的平均）', () => {
+  it('大类盈亏比例 = Σ持仓盈亏 ÷ Σ持仓成本（多基金加权，不是各基金比例的平均）', () => {
     // A：成本 1000，市值 1200（+200，+20%）；B：成本 3000，市值 2700（−300，−10%）
     const [group] = groupsOf(
       [fundOf('A', '权益'), fundOf('B', '权益')],
@@ -528,7 +528,7 @@ describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率�
     expect(group.pnlRatio).not.toBeCloseTo(0.05, 9) // 等权平均是 +5%，两者可区分
   })
 
-  it('组级年化 = 组内在持基金完整现金流的 XIRR（两基金手算黄金值）', () => {
+  it('大类年化收益率 = 组内在持基金完整现金流的 XIRR（两基金手算黄金值）', () => {
     // A、B 均在 2025-01-01 买入 1000；今天 2027-01-01（730 天）市值 1320 + 1100 = 2420。
     // 1 + r = √(2420 / 2000) = 1.1 → r = 10%
     const [group] = groupsOf(
@@ -540,12 +540,12 @@ describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率�
     expect(group.annualized).toBeCloseTo(0.1, 9)
   })
 
-  it('只有一个基金的大类：组值与逐基金列相同（同一公式、同一流水）', () => {
+  it('只有一个基金的大类：大类值与逐基金列相同（同一公式、同一流水）', () => {
     const funds = [fundOf('A', '权益')]
     const txs = [tx('2025-01-01', '买入', 'A', 1000, 1000)]
     const navs = [nav('A', TODAY, 1.32)]
     const positions = computePositions(funds, txs, navs)
-    const [group] = groupPositionsByCategory(positions, txs, navs, TODAY)
+    const [group] = groupPositionsByCategory(positions, txs, TODAY)
     expect(group.pnlRatio).toBeCloseTo(positions[0].pnlRatio!, 12)
     expect(group.annualized).toBeCloseTo(
       computeAnnualizedReturns(txs, navs, TODAY).get('A')!,
@@ -553,7 +553,7 @@ describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率�
     )
   })
 
-  it('组内任一在持基金市值未知：盈亏比例与年化两项皆空（不展示残缺汇总）', () => {
+  it('组内任一在持基金市值未知：大类盈亏比例与大类年化收益率两项皆空（不展示残缺汇总）', () => {
     // B 没有净值记录：marketValue 为 null；A 正常
     const [group] = groupsOf(
       [fundOf('A', '权益'), fundOf('B', '权益')],
@@ -565,7 +565,7 @@ describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率�
     expect(group.annualized).toBeNull()
   })
 
-  it('持仓成本合计为 0：盈亏比例为空（比例无定义），年化同样为空', () => {
+  it('持仓成本合计为 0：大类盈亏比例为空（比例无定义），大类年化收益率同样为空', () => {
     // 只有分红再投入（0 成本份额）：份额 > 0、市值存在，但 Σ持仓成本 = 0
     const [group] = groupsOf(
       [fundOf('A', '权益')],
@@ -592,7 +592,7 @@ describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率�
     expect(group.pnlRatio).toBeCloseTo(0.2, 9) // 仅 A：200 / 1000
   })
 
-  it('「其他」兜底组同规则：脏值类目也按同一公式算出组级指标', () => {
+  it('「其他」兜底组同规则：脏值类目也按同一公式算出大类指标', () => {
     const [group] = groupsOf(
       [fundOf('A', '股票'), fundOf('B', '')],
       [tx('2025-01-01', '买入', 'A', 1000, 1000), tx('2025-01-01', '买入', 'B', 1000, 1000)],
@@ -603,7 +603,7 @@ describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率�
     expect(group.annualized).toBeCloseTo(Math.sqrt(1.05) - 1, 9) // −2000 → 2100，730 天 → √1.05 − 1
   })
 
-  it('组级年化的现金流只取组内基金：不同大类互不串流', () => {
+  it('大类年化收益率的现金流只取组内基金：不同大类互不串流', () => {
     // 权益 A：1000 → 1210（年化 +10%）；黄金 B：1000 → 810（年化 −10%）；均为 730 天
     const groups = groupsOf(
       [fundOf('A', '权益'), fundOf('B', '黄金')],
@@ -614,7 +614,7 @@ describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率�
     expect(groups[1].annualized).toBeCloseTo(-0.1, 9)
   })
 
-  it('已清仓基金的卖出回款不进组级年化（仅组内在持基金参与）', () => {
+  it('已清仓基金的卖出回款不进大类年化收益率（仅组内在持基金参与）', () => {
     // A 在持：1000 → 1210（730 天，10%）；B 已清仓：1000 → 2000（若串入会把组年化抬高）
     const [group] = groupsOf(
       [fundOf('A', '权益'), fundOf('B', '权益')],
@@ -628,7 +628,7 @@ describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率�
     expect(group.annualized).toBeCloseTo(0.1, 9)
   })
 
-  it('首笔现金流距今天不足 30 天：年化为空，盈亏比例照常', () => {
+  it('首笔现金流距今天不足 30 天：大类年化收益率为空，大类盈亏比例照常', () => {
     const [group] = groupsOf(
       [fundOf('A', '权益')],
       [tx('2026-12-03', '买入', 'A', 1000, 1000)], // 距 2027-01-01 仅 29 天
@@ -638,7 +638,7 @@ describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率�
     expect(group.annualized).toBeNull()
   })
 
-  it('净投入 ≤ 0：年化为空（求根无经济意义），盈亏比例照常', () => {
+  it('净投入 ≤ 0：大类年化收益率为空（求根无经济意义），大类盈亏比例照常', () => {
     const [group] = groupsOf(
       [fundOf('A', '权益')],
       [
@@ -651,7 +651,7 @@ describe('持仓明细组级指标（大类盈亏比例 / 大类年化收益率�
     expect(group.annualized).toBeNull()
   })
 
-  it('清仓后重建：组级年化含完整历史，时钟不重置（手算 10%）', () => {
+  it('清仓后重建：大类年化收益率含完整历史，时钟不重置（手算 10%）', () => {
     // 与口径化汇总同一场景：−1000 / +1200 / −500 与期末 440（三轮现金流跨两年）
     const [group] = groupsOf(
       [fundOf('A', '权益')],

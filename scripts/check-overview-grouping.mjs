@@ -188,7 +188,7 @@ const state = await evalJs(`(() => {
   const readCell = (el) => {
     if (!el) return null
     const cs = getComputedStyle(el)
-    // 组汇总格现在是多行（市值主行 + 盈亏 + 年化）：跨组断言只读主行市值
+    // 组汇总格现在是多行（市值主行 + 盈亏比例 + 年化收益率）：跨组断言只读主行市值
     const main = el.querySelector('.group-summary-main')
     return {
       text: (main ?? el).textContent.trim(),
