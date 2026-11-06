@@ -177,6 +177,23 @@ async function clickButtonByText(text) {
   })()`)
 }
 
+/** 切到「全部基金」口径：等分段控件渲染后点击，15s 内未成功即 fail。
+ *  GOLDEN 是改动前的全部基金口径（含已清仓基金），卡片默认「在持基金」需先切换。 */
+async function selectAllScope(where) {
+  const ok = await waitFor(
+    () =>
+      evaluate(`(() => {
+        const btn = [...document.querySelectorAll('.scope-switch-btn')].find((b) => b.textContent.trim() === '全部基金')
+        if (!btn) return false
+        if (btn.getAttribute('aria-pressed') === 'true') return true
+        btn.click()
+        return false
+      })()`).catch(() => false),
+    15000
+  )
+  if (!ok) fail(`${where}未能切到「全部基金」口径（GOLDEN 为全部基金口径）`)
+}
+
 async function shot(name) {
   const s = await send('Page.captureScreenshot', { format: 'png' })
   const p = join(SHOTS, name)
@@ -311,6 +328,8 @@ console.log('  导入完成：对账全部一致 ✓')
 
 // ---- 5. 概览查看（golden 值取自投资跟踪.xlsx 对账基准）-------------------------
 await clickNav('概览')
+// 汇总卡片默认「在持基金」；GOLDEN 是改动前的全部基金口径（含已清仓基金），先切换
+await selectAllScope('概览页')
 const stats = await evaluate(`(() => {
   const out = {}
   for (const s of document.querySelectorAll('.stat')) {
@@ -366,6 +385,8 @@ await shot('overview.png')
 
 // ---- 6. 改流水：修改备注 → 断言列表更新 → 还原 ---------------------------------
 await clickNav('交易流水')
+// GOLDEN 为全部基金口径：流水页卡片同样先切换
+await selectAllScope('交易流水页')
 const txStats = await evaluate(`(() => {
   const out = {}
   for (const s of document.querySelectorAll('.stat')) {

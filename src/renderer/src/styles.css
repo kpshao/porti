@@ -189,16 +189,56 @@ body {
   font-size: 12px;
 }
 
+/* 汇总卡片：概览页与流水页共用两行版式（第一行结果、第二行分解），分段控件绝对定位于右上角 */
 .summary-card {
+  position: relative;
   display: flex;
-  gap: 32px;
-  flex-wrap: wrap;
-}
-
-/* 概览页两行版式：第一行「结果」、第二行「分解」，每行一个 .stat-row（交易流水页仍是单行） */
-.summary-card-rows {
   flex-direction: column;
   gap: 12px;
+}
+
+/* 第一行右侧预留控件宽度：窄窗口换行时数字也不会钻到控件下方 */
+.summary-row-primary {
+  padding-right: 168px;
+}
+
+/* 口径分段控件：卡片右上角，不额外占一行；按钮为原生 button，可 Tab 聚焦、Enter/Space 触发 */
+.scope-switch {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: #f5f6f7;
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  z-index: 1;
+}
+
+.scope-switch-btn {
+  padding: 3px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #86909c;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.scope-switch-btn:hover {
+  color: #1f2329;
+}
+
+.scope-switch-btn[aria-pressed='true'] {
+  background: #3370ff;
+  color: #fff;
+}
+
+.scope-switch-btn:focus-visible {
+  outline: 2px solid #1f2329;
+  outline-offset: 1px;
 }
 
 .stat-row {

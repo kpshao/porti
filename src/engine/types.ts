@@ -84,6 +84,23 @@ export interface Totals {
   totalReturn: number // 总收益 = 持仓盈亏 + 已实现盈亏（数值与简单成本法恒等）
 }
 
+/** 汇总口径：全部基金 / 在持基金（份额 > 0） */
+export type SummaryScope = 'all' | 'held'
+
+/** 口径化汇总：该统计范围的 Totals 与整体年化收益率（无定义时为 null） */
+export interface ScopedSummary {
+  totals: Totals
+  annualized: number | null
+}
+
+/** 汇总数据：两种口径的完整汇总 + 单基金年化映射（持仓明细年化列用）。
+ *  整体年化只存在于 all/held 的 ScopedSummary 中，不另存第二份事实来源。 */
+export interface SummaryData {
+  all: ScopedSummary
+  held: ScopedSummary
+  perFundAnnualized: Record<string, number | null>
+}
+
 export interface CategoryComparisonRow {
   category: string
   targetRatio: number
@@ -128,10 +145,4 @@ export type FundSeriesRange = '1m' | '3m' | '1y' | 'all'
 export interface XirrCashFlow {
   date: string
   amount: number
-}
-
-/** 年化收益率数据：按基金代码映射 + 整体（概览/流水页契约共用） */
-export interface AnnualizedReturnData {
-  perFund: Record<string, number | null>
-  total: number | null
 }

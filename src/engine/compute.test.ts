@@ -27,6 +27,7 @@ import {
   groupClosedPositions,
   OTHER_CATEGORY,
   CLOSED_CATEGORY,
+  computeScopedSummary,
   xirr
 } from './compute'
 
@@ -1361,5 +1362,186 @@ describe('按笔已实现收益（realizedPerSale / realizedForSale，手算黄�
       note: null
     }
     expect(realizedForSale([], sale)).toBeCloseTo(150, 6)
+  })
+})
+
+describe('口径化汇总（computeScopedSummary）', () => {
+  const fundOf = (code: string): Fund => ({ code, name: `基金${code}`, category: '权益', fundType: null })
+  const tx = (
+    date: string,
+    type: Transaction['type'],
+    fundCode: string,
+    amount: number,
+    shares: number | null
+  ): Transaction => ({ date, type, fundCode, amount, shares, nav: null, fee: 0, note: null })
+  const nav = (fundCode: string, date: string, value: number): NavPoint => ({
+    fundCode,
+    date,
+    nav: value,
+    source: 'import'
+  })
+  const positionsOf = (codes: string[], txs: Transaction[], navs: NavPoint[]): FundPosition[] =>
+    computePositions(codes.map(fundOf), txs, navs)
+
+  it('all 口径与 computeTotals + computeTotalAnnualizedReturn 逐值一致（golden fixtures）', () => {
+    const positions = computePositions(goldenFunds, goldenTransactions, goldenNavPoints)
+    const summary = computeScopedSummary('all', positions, goldenTransactions, goldenNavPoints, '2026-08-11')
+    expect(summary.totals).toEqual(computeTotals(positions, goldenTransactions))
+    expect(summary.totals.totalNetCost).toBeCloseTo(277394.2, 2)
+    expect(summary.totals.totalReturn).toBeCloseTo(-6403.443442, 2)
+    expect(summary.annualized).toBeCloseTo(-0.0625911619, 8)
+  })
+
+  it('held 排除已清仓基金：净投入、已实现盈亏、现金流与市值都不进任何在持指标', () => {
+    const txs = [
+      tx('2025-01-01', '买入', 'A', 1000, 1000),
+      tx('2025-01-01', '买入', 'B', 500, 500),
+      tx('2025-06-01', '分红现金', 'B', 50, null),
+      tx('2026-01-01', '卖出', 'B', -800, -500) // 清仓：已实现 300，另有分红 50
+    ]
+    const navs = [nav('A', '2026-01-01', 1.2), nav('B', '2026-01-01', 1.6)]
+    const positions = positionsOf(['A', 'B'], txs, navs)
+
+    const held = computeScopedSummary('held', positions, txs, navs, '2026-01-01')
+    expect(held.totals.totalNetCost).toBe(1000) // 仅 A 的买入，不含 B 的 500 − 800
+    expect(held.totals.totalAssets).toBeCloseTo(1200, 6) // B 已清仓，市值为 0
+    expect(held.totals.totalPnl).toBeCloseTo(200, 6)
+    expect(held.totals.realizedIncome).toBe(0) // B 的 300 + 50 不进在持
+    expect(held.totals.totalReturn).toBeCloseTo(200, 6)
+    expect(held.totals.totalReturnRate).toBeCloseTo(0.2, 9)
+    expect(held.annualized).toBeCloseTo(0.2, 9) // 仅 A：−1000 → 1200，恰好一年
+
+    const all = computeScopedSummary('all', positions, txs, navs, '2026-01-01')
+    expect(all.totals.totalNetCost).toBe(700)
+    expect(all.totals.realizedIncome).toBeCloseTo(350, 6)
+    expect(all.annualized).not.toBeCloseTo(0.2, 6)
+  })
+
+  it('held 保留在持基金的部分卖出已实现收益与分红现金', () => {
+    const txs = [
+      tx('2025-01-01', '买入', 'A', 1000, 1000),
+      tx('2025-07-01', '卖出', 'A', -300, -200), // 消耗成本 200，已实现 100
+      tx('2025-09-01', '分红现金', 'A', 50, null)
+    ]
+    const navs = [nav('A', '2026-01-01', 1.2)]
+    const positions = positionsOf(['A'], txs, navs)
+    const held = computeScopedSummary('held', positions, txs, navs, '2026-01-01')
+    expect(held.totals.realizedIncome).toBeCloseTo(150, 6) // 100 + 50
+    // 市值 800 × 1.2 = 960；持仓成本 800；浮动 160；总收益 310
+    expect(held.totals.totalAssets).toBeCloseTo(960, 6)
+    expect(held.totals.totalPnl).toBeCloseTo(160, 6)
+    expect(held.totals.totalReturn).toBeCloseTo(310, 6)
+    expect(held.totals.totalNetCost).toBe(700)
+    expect(held.totals.totalReturnRate).toBeCloseTo(310 / 700, 9)
+  })
+
+  it('held 年化只用非清仓基金的现金流，期末估值为在持市值（手算 XIRR）', () => {
+    const txs = [
+      tx('2025-01-01', '买入', 'A', 1000, 1000),
+      tx('2025-01-01', '买入', 'B', 1000, 1000),
+      tx('2026-01-01', '卖出', 'B', -2000, -1000) // 已清仓的高收益基金
+    ]
+    const navs = [nav('A', '2026-01-01', 1.1)]
+    const positions = positionsOf(['A', 'B'], txs, navs)
+    const held = computeScopedSummary('held', positions, txs, navs, '2026-01-01')
+    // 仅 A：−1000 → 期末 1100（恰好一年）→ 10%
+    expect(held.annualized).toBeCloseTo(0.1, 9)
+    const all = computeScopedSummary('all', positions, txs, navs, '2026-01-01')
+    expect(all.annualized).not.toBeCloseTo(0.1, 6) // B 的大量回款不进在持
+  })
+
+  it('份额 = 0 与超卖负份额都排除', () => {
+    const txs = [
+      tx('2025-01-01', '买入', 'A', 1000, 1000),
+      tx('2025-01-01', '买入', 'Z', 100, 100),
+      tx('2025-06-01', '卖出', 'Z', -150, -100), // 份额归零：已实现 50
+      tx('2025-01-01', '买入', 'N', 100, 100),
+      tx('2025-06-01', '卖出', 'N', -180, -150) // 超卖：份额 −50，已实现 80
+    ]
+    const navs = [nav('A', '2026-01-01', 1.1), nav('Z', '2026-01-01', 1.5), nav('N', '2026-01-01', 1)]
+    const positions = positionsOf(['A', 'Z', 'N'], txs, navs)
+    const held = computeScopedSummary('held', positions, txs, navs, '2026-01-01')
+    expect(held.totals.totalNetCost).toBe(1000)
+    expect(held.totals.totalAssets).toBeCloseTo(1100, 6) // N 的负市值 −50 不进
+    expect(held.totals.realizedIncome).toBe(0) // Z 的 50 与 N 的 80 都不进
+    expect(held.totals.totalReturn).toBeCloseTo(100, 6)
+    expect(held.annualized).toBeCloseTo(0.1, 9)
+  })
+
+  it('没有在持基金：Totals 全 0、比率为 null、年化为 null', () => {
+    const txs = [
+      tx('2025-01-01', '买入', 'B', 200, 100),
+      tx('2025-06-01', '卖出', 'B', -150, -100) // 清仓，已实现 −50
+    ]
+    const navs = [nav('B', '2026-01-01', 1.5)]
+    const positions = positionsOf(['B', 'C'], txs, navs) // C 从未建仓
+    const held = computeScopedSummary('held', positions, txs, navs, '2026-01-01')
+    expect(held.totals).toEqual({
+      totalNetCost: 0,
+      totalAssets: 0,
+      totalPnl: 0,
+      totalReturnRate: null,
+      realizedIncome: 0,
+      totalReturn: 0
+    })
+    expect(held.annualized).toBeNull()
+    // 全部基金口径仍能算出已清仓基金的战绩（对照）
+    expect(computeScopedSummary('all', positions, txs, navs, '2026-01-01').annualized).not.toBeNull()
+  })
+
+  it('无净值的在持基金：市值不进 totalAssets，也不进年化期末估值', () => {
+    const txs = [tx('2025-01-01', '买入', 'A', 1000, 1000)]
+    const positions = positionsOf(['A'], txs, [])
+    const held = computeScopedSummary('held', positions, txs, [], '2026-01-01')
+    expect(held.totals.totalAssets).toBe(0)
+    expect(held.totals.totalPnl).toBe(-1000) // 市值按 0 计：浮动 = −持仓成本
+    expect(held.totals.totalReturn).toBe(-1000)
+    expect(held.totals.totalNetCost).toBe(1000)
+    expect(held.annualized).toBeNull() // 期末估值缺失 → 无解
+  })
+
+  it('守卫：首笔现金流距今天不足 30 天 → 年化为 null', () => {
+    const txs = [tx('2025-12-03', '买入', 'A', 100, 100)] // 距 2026-01-01 仅 29 天
+    const navs = [nav('A', '2026-01-01', 1.1)]
+    const held = computeScopedSummary('held', positionsOf(['A'], txs, navs), txs, navs, '2026-01-01')
+    expect(held.annualized).toBeNull()
+  })
+
+  it('守卫：净成本 ≤ 0 → 年化为 null（累计收益率也为 null）', () => {
+    const txs = [
+      tx('2025-01-01', '买入', 'A', 100, 100),
+      tx('2025-06-01', '卖出', 'A', -200, -50) // 仍在持 50 份，净投入 −100
+    ]
+    const navs = [nav('A', '2026-01-01', 1)]
+    const held = computeScopedSummary('held', positionsOf(['A'], txs, navs), txs, navs, '2026-01-01')
+    expect(held.totals.totalNetCost).toBe(-100)
+    expect(held.totals.totalReturnRate).toBeNull()
+    expect(held.annualized).toBeNull()
+  })
+
+  it('守卫：求根失败（只有流出、期末估值为 0）→ 年化为 null', () => {
+    const txs = [tx('2025-01-01', '买入', 'A', 1000, 1000)]
+    const navs = [nav('A', '2026-01-01', 0)] // 期末估值 0：现金流全为负，无符号变化
+    const held = computeScopedSummary('held', positionsOf(['A'], txs, navs), txs, navs, '2026-01-01')
+    expect(held.annualized).toBeNull()
+  })
+
+  it('清仓后重建：held 含完整历史（上一轮已实现盈亏也计入），年化时钟不重置', () => {
+    const txs = [
+      tx('2025-01-01', '买入', 'A', 1000, 1000),
+      tx('2026-01-01', '卖出', 'A', -1200, -1000), // 第一轮清仓：已实现 +200
+      tx('2026-01-01', '买入', 'A', 500, 500) // 同日重建
+    ]
+    const navs = [nav('A', '2027-01-01', 0.88)]
+    const positions = positionsOf(['A'], txs, navs)
+    const held = computeScopedSummary('held', positions, txs, navs, '2027-01-01')
+    expect(held.totals.totalNetCost).toBe(300) // 1000 − 1200 + 500
+    expect(held.totals.realizedIncome).toBeCloseTo(200, 6) // 上一轮卖出已实现
+    expect(held.totals.totalAssets).toBeCloseTo(440, 6) // 500 × 0.88
+    expect(held.totals.totalReturn).toBeCloseTo(140, 6) // 浮动 −60 + 已实现 200
+    expect(held.totals.totalReturnRate).toBeCloseTo(140 / 300, 9)
+    // 完整现金流：−1000（2025-01-01）、+1200 与 −500（2026-01-01）、期末 440（2027-01-01），
+    // 按整年折现手算 r = 10%；若年化时钟从重建日重置，则为 440/500 − 1 = −12%
+    expect(held.annualized).toBeCloseTo(0.1, 9)
   })
 })

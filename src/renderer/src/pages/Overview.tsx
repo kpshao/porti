@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { OverviewData } from '../../../main/overviewTypes'
 import FundDetail from '../components/FundDetail'
+import SummaryCards from '../components/SummaryCards'
 import { formatMoney, formatNav, formatPercent, formatShares } from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
 import { pnlClass } from '../utils/pnl'
-
-/** 年化收益率的已知失真（挂卡片 tooltip）：合并买入记录会拉长持有期，使年化偏低 */
-const ANNUALIZED_HINT =
-  '年化收益率基于你填写的买入日期计算；把多笔买入合并成一条记录会拉长持有期，使年化偏低。'
 
 /** 行内编辑暂存值：键为大类名（目标比例） */
 type Edits = Record<string, string>
@@ -102,56 +99,7 @@ export default function Overview(): React.JSX.Element {
 
       {error !== null && <div className="banner banner-error">{error}</div>}
 
-      {hasData && data.totals !== null && (
-        <div className="card summary-card summary-card-rows">
-          {/* 第一行（结果）：总资产恒为正不着色，其余三张按正负着色 */}
-          <div className="stat-row">
-            <div className="stat">
-              <div className="stat-label">总资产</div>
-              <div className="stat-value">{formatMoney(data.totals.totalAssets)}</div>
-            </div>
-            <div className="stat">
-              <div className="stat-label">总收益</div>
-              <div className={`stat-value ${pnlClass(data.totals.totalReturn)}`}>
-                {formatMoney(data.totals.totalReturn)}
-              </div>
-            </div>
-            <div className="stat">
-              <div className="stat-label">累计收益率</div>
-              <div className={`stat-value ${pnlClass(data.totals.totalReturnRate)}`}>
-                {formatPercent(data.totals.totalReturnRate)}
-              </div>
-            </div>
-            <div className="stat" title={ANNUALIZED_HINT}>
-              <div className="stat-label">
-                年化收益率
-                <span className="hint-mark">ⓘ</span>
-              </div>
-              <div className={`stat-value ${pnlClass(data.annualized.total)}`}>
-                {formatPercent(data.annualized.total)}
-              </div>
-            </div>
-          </div>
-
-          {/* 第二行（分解）：把「持仓盈亏 + 已实现盈亏 = 总收益」写成看得见的等式 */}
-          <div className="stat-row stat-row-parts">
-            <div className="stat">
-              <div className="stat-label">持仓盈亏</div>
-              <div className={`stat-value ${pnlClass(data.totals.totalPnl)}`}>
-                {formatMoney(data.totals.totalPnl)}
-              </div>
-            </div>
-            <div className="stat-op">+</div>
-            <div className="stat">
-              <div className="stat-label">已实现盈亏</div>
-              <div className={`stat-value ${pnlClass(data.totals.realizedIncome)}`}>
-                {formatMoney(data.totals.realizedIncome)}
-              </div>
-            </div>
-            <div className="stat-op">= 总收益</div>
-          </div>
-        </div>
-      )}
+      {hasData && data.summary !== null && <SummaryCards summary={data.summary} />}
 
       {hasData && (
         <div className="card card-positions">
@@ -193,7 +141,7 @@ export default function Overview(): React.JSX.Element {
                 {groupsToShow.map((group) => (
                   <tbody key={group.category}>
                     {group.positions.map((p, rowIndex) => {
-                      const annualized = data.annualized.perFund[p.fundCode]
+                      const annualized = data.summary?.perFundAnnualized[p.fundCode] ?? null
                       return (
                         <tr key={p.fundCode}>
                           {rowIndex === 0 && (

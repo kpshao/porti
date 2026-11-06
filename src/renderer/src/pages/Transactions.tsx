@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CommitPayload, ImportOutcome, ParseResult, SuspiciousField, TxData } from '../../../importer/types'
 import type { Transaction, TransactionRow } from '../../../engine'
 import type { TransactionInput } from '../../../engine'
+import SummaryCards from '../components/SummaryCards'
 import TransactionForm from '../components/TransactionForm'
 import TransactionTable from '../components/TransactionTable'
 import type { TxFilter, TxSort } from '../components/TransactionTable'
@@ -182,38 +183,7 @@ export default function Transactions(): React.JSX.Element {
 
       {error !== null && <div className="banner banner-error">{error}</div>}
 
-      {hasData && txData.totals !== null && (
-        <div className="card summary-card">
-          <div className="stat">
-            <div className="stat-label">总资产</div>
-            <div className="stat-value">{formatMoney(txData.totals.totalAssets)}</div>
-          </div>
-          <div className="stat">
-            <div className="stat-label">持仓盈亏</div>
-            <div className={`stat-value ${pnlClass(txData.totals.totalPnl)}`}>
-              {formatMoney(txData.totals.totalPnl)}
-            </div>
-          </div>
-          <div className="stat">
-            <div className="stat-label">累计收益率</div>
-            <div className={`stat-value ${pnlClass(txData.totals.totalReturnRate)}`}>
-              {formatPercent(txData.totals.totalReturnRate)}
-            </div>
-          </div>
-          <div className="stat">
-            <div className="stat-label">年化收益率</div>
-            <div className={`stat-value ${pnlClass(txData.annualized.total)}`}>
-              {formatPercent(txData.annualized.total)}
-            </div>
-          </div>
-          <div className="stat">
-            <div className="stat-label">已实现盈亏</div>
-            <div className={`stat-value ${pnlClass(txData.totals.realizedIncome)}`}>
-              {formatMoney(txData.totals.realizedIncome)}
-            </div>
-          </div>
-        </div>
-      )}
+      {hasData && txData.summary !== null && <SummaryCards summary={txData.summary} />}
 
       {formOpen !== null && (
         <TransactionForm

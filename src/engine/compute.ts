@@ -6,6 +6,8 @@ import type {
   FundPosition,
   PositionGroup,
   Totals,
+  SummaryScope,
+  ScopedSummary,
   CategoryComparisonRow,
   CategoryTarget,
   TimePoint,
@@ -577,4 +579,28 @@ export function computeTotalAnnualizedReturn(
     terminal += shares * nav.nav
   }
   return xirr(flows, terminal, today)
+}
+
+/** 口径化汇总入口：按统计范围返回 Totals 与整体年化收益率。
+ *  all = 全部基金：直接复用 computeTotals 与 computeTotalAnnualizedReturn，与改动前逐值一致。
+ *  held = 在持基金：用 isHeld（份额 > 0）过滤出在持持仓与其基金代码集合，把这批持仓与
+ *  这批基金的全部流水（含清仓重建前的历史）交给同一对纯函数——不复制收益/年化公式。 */
+export function computeScopedSummary(
+  scope: SummaryScope,
+  positions: FundPosition[],
+  transactions: Transaction[],
+  navPoints: NavPoint[],
+  today: string
+): ScopedSummary {
+  let scopedPositions = positions
+  let scopedTransactions = transactions
+  if (scope === 'held') {
+    scopedPositions = positions.filter(isHeld)
+    const heldCodes = new Set(scopedPositions.map((p) => p.fundCode))
+    scopedTransactions = transactions.filter((t) => heldCodes.has(t.fundCode))
+  }
+  return {
+    totals: computeTotals(scopedPositions, scopedTransactions),
+    annualized: computeTotalAnnualizedReturn(scopedTransactions, navPoints, today)
+  }
 }
