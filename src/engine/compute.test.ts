@@ -1485,7 +1485,7 @@ describe('口径化汇总（computeScopedSummary）', () => {
       totalReturn: 0
     })
     expect(held.annualized).toBeNull()
-    // 全部口径仍能算出已清仓基金的战绩（对照）
+    // 全部基金口径仍能算出已清仓基金的战绩（对照）
     expect(computeScopedSummary('all', positions, txs, navs, '2026-01-01').annualized).not.toBeNull()
   })
 
