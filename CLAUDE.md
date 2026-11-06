@@ -4,11 +4,11 @@
 
 ### Issue tracker
 
-issue 和 spec 以 markdown 文件形式存放在本仓库 `.scratch/<feature>/` 下。见 `docs/agents/issue-tracker.md`。
+issue 和 spec 存放在本仓库的 GitHub Issues（`kpshao/porti`），用 `gh` CLI 操作；仓库公开，写入前须脱敏。`.scratch/` 为历史归档，只读。见 `docs/agents/issue-tracker.md`。
 
 ### Triage labels
 
-五个标准角色标签（`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`）作为 issue 文件的 `Status:` 行取值。见 `docs/agents/triage-labels.md`。
+五个标准角色标签（`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`）作为 GitHub issue 的 label 取值。见 `docs/agents/triage-labels.md`。
 
 ### Domain docs
 
