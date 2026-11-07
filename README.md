@@ -75,6 +75,10 @@ npm run test       # 单元测试（vitest，覆盖计算引擎/导入解析/抓
 npm run package    # 打包：Mac dmg + Windows exe（产物在 release/）
 ```
 
+### 验收脚本
+
+`scripts/check-*.mjs` 是端到端验收检查：构建 → 临时 profile 复制真实数据库 → 启动 Electron → 通过 CDP 断言 → 清理。它们不在 `npm test` 内，需要本机有真实数据库副本，运行时会启动应用；每个脚本首部注释说明覆盖范围与前置条件。运行方式 `node scripts/check-<name>.mjs`，退出码 0 = GREEN。
+
 打包说明：
 
 - `electron-builder.yml` 为打包配置；V1 不使用开发者证书（Mac 为 ad-hoc 签名保证 Apple Silicon 可运行）
