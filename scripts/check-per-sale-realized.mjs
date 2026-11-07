@@ -77,8 +77,7 @@ if (existsSync(join(realDbDir, 'porti.db'))) {
 }
 
 // ---- 3. 独立事实来源：sqlite3 直读 + 自己走一遍移动加权平均 ----------------
-/** 库内流水（已按 date, id 升序——与库内查询同规则；独立重算与「最新日期」推导依赖升序，
- *  界面默认行序是该列表的反转，见下） */
+/** 库内流水（按 date, id 升序）：独立重算与「最新日期」推导依赖升序 */
 const txRows = []
 if (existsSync(dbPath)) {
   const q = spawnSync('sqlite3', [
@@ -327,7 +326,7 @@ if (table.error) {
 check(table.realizedIndex === 4, '流水表含「本笔已实现」列且在金额之后', `第 ${table.realizedIndex + 1} 列`)
 check(
   table.rows.length === txRows.length,
-  '表内行数 = 库中流水数（默认日期降序只改行序，不改行数）',
+  '表内行数 = 库中流水数（默认排序不影响行数）',
   `${table.rows.length} vs ${txRows.length}`
 )
 
@@ -371,7 +370,7 @@ table.rows.forEach((row, i) => {
 
 check(
   misaligned.length === 0,
-  '表内行序 = 库内 (date, id) 升序列表的反转（日期降序、同日 id 降序；逐行校验日期/类型/基金/金额）',
+  '表内行序 = 库内 (date, id) 升序列表的反转（逐行校验日期/类型/基金/金额）',
   misaligned.slice(0, 3).join('; ')
 )
 check(
