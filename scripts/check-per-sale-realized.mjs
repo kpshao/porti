@@ -77,7 +77,7 @@ if (existsSync(join(realDbDir, 'porti.db'))) {
 }
 
 // ---- 3. 独立事实来源：sqlite3 直读 + 自己走一遍移动加权平均 ----------------
-/** 库内流水（已按 date, id 升序——与库内查询、界面默认排序同规则） */
+/** 库内流水（按 date, id 升序）：独立重算与「最新日期」推导依赖升序 */
 const txRows = []
 if (existsSync(dbPath)) {
   const q = spawnSync('sqlite3', [
@@ -326,7 +326,7 @@ if (table.error) {
 check(table.realizedIndex === 4, '流水表含「本笔已实现」列且在金额之后', `第 ${table.realizedIndex + 1} 列`)
 check(
   table.rows.length === txRows.length,
-  '表内行数 = 库中流水数（默认排序与库内 ORDER BY date, id 同规则）',
+  '表内行数 = 库中流水数（默认排序不影响行数）',
   `${table.rows.length} vs ${txRows.length}`
 )
 
@@ -336,13 +336,15 @@ if (txRows.length === 0) {
   process.exit(0)
 }
 
-// 逐行对账：日期/类型/金额先校验行序对齐，再比对「本笔已实现」
+// 逐行对账：界面默认日期降序、同日 id 降序，期望行序 = 库内 (date, id) 升序列表的反转；
+// 先校验日期/类型/金额行序对齐，再比对「本笔已实现」
+const expectedRows = [...txRows].reverse()
 const misaligned = []
 const badRealized = []
 const badBlank = []
 const badColor = []
 table.rows.forEach((row, i) => {
-  const t = txRows[i]
+  const t = expectedRows[i]
   if (!t) {
     misaligned.push(`第 ${i + 1} 行：库里没有对应流水`)
     return
@@ -366,7 +368,11 @@ table.rows.forEach((row, i) => {
   }
 })
 
-check(misaligned.length === 0, '表内行序与库内 (date, id) 序一致（逐行校验日期/类型/基金/金额）', misaligned.slice(0, 3).join('; '))
+check(
+  misaligned.length === 0,
+  '表内行序 = 库内 (date, id) 升序列表的反转（逐行校验日期/类型/基金/金额）',
+  misaligned.slice(0, 3).join('; ')
+)
 check(
   badRealized.length === 0,
   `卖出行「本笔已实现」= 独立重算值（${sellCount} 笔）`,
@@ -440,7 +446,7 @@ if (sellRow === undefined) {
   await new Promise((r) => setTimeout(r, 300))
 }
 
-// 截图对准卖出行（卖出通常落在表尾，滚进视野才看得见）
+// 截图对准卖出行（默认日期降序下卖出行位置不定，滚进视野才看得见；取最靠表尾的一笔）
 await evalJs(`(() => {
   const table = [...document.querySelectorAll('table.table')].find(
     (t) => [...t.querySelectorAll('thead th')].some((th) => th.textContent.trim() === '本笔已实现')
