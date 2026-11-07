@@ -48,7 +48,7 @@ function toNumberOrNull(value: string): number | null {
 export default function Transactions(): React.JSX.Element {
   const [txData, setTxData] = useState<TxData | null>(null)
   const [filter, setFilter] = useState<TxFilter>({ fundCode: 'all', type: 'all', from: '', to: '' })
-  // 默认日期降序：进入页面先看近期流水；同日多笔按 id 降序（比较器让次序键跟随方向）
+  // 默认日期降序：进入页面先看近期流水
   const [sort, setSort] = useState<TxSort>({ key: 'date', dir: 'desc' })
   const [formOpen, setFormOpen] = useState<FormState>(null)
 

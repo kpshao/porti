@@ -66,6 +66,7 @@ export default function TransactionTable({
               ? -1
               : 1
           : a.amount - b.amount
+      // 次序键相同时按 id 排序，方向跟随当前排序方向
       return primary * dir !== 0 ? primary * dir : (a.id - b.id) * dir
     })
   }, [rows, filter, sort])
