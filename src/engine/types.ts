@@ -68,6 +68,24 @@ export interface FundPosition {
   pnlRatio: number | null // 盈亏比例 = 持仓盈亏 / 持仓成本（成本 ≤ 0 或无净值时为 null）
 }
 
+/** 单只基金在组合中的集中度权重：w_i = 基金市值 ÷ Σ可估值在持基金市值 */
+export interface FundWeight {
+  fundCode: string
+  weight: number
+}
+
+/** 集中度指标：只统计可估值的在持基金（份额 > 0 且有最新净值）。
+ *  口径见 CONTEXT.md「集中度指标」；已清仓与缺净值基金不参与权重。 */
+export interface ConcentrationMetrics {
+  weights: FundWeight[] // 每只可估值在持基金的权重，按权重降序、同权按基金代码升序
+  maxWeight: number | null // 最大单只占比 = max(w_i)；无可估值持仓时为 null
+  top3Weight: number | null // 前三大占比 = 权重降序前三之和（不足三只取全部）；无可估值持仓时为 null
+  hhi: number // HHI = Σw_i²；无可估值持仓时为 0
+  effectiveHoldings: number | null // 有效持仓数 = 1 ÷ HHI；HHI 为 0 时为 null（界面显示「—」）
+  valuedCount: number // 计入权重的可估值在持基金数（等权基准 1/N 的 N）
+  missingNavCount: number // 缺最新净值的在持基金数（不计入权重，界面提示用）
+}
+
 /** 概览持仓明细的大类分组：组头 + 组内明细 */
 export interface PositionGroup {
   category: string // 组名：CATEGORIES 之一、兜底组「其他」，或表尾组「已清仓」

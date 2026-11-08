@@ -19,3 +19,15 @@ export function formatPercent(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—'
   return `${(n * 100).toFixed(2)}%`
 }
+
+/** HHI：界面约定 3 位小数（无定义显示「—」） */
+export function formatHhi(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return '—'
+  return n.toFixed(3)
+}
+
+/** 有效持仓数（1 ÷ HHI）：界面约定 1 位小数（无定义显示「—」） */
+export function formatEffectiveHoldings(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return '—'
+  return n.toFixed(1)
+}

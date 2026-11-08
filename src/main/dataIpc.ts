@@ -6,6 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import {
   computeAnnualizedReturns,
   computeCategoryComparison,
+  computeConcentrationMetrics,
   computeFundSeries,
   computePositions,
   computeScopedSummary,
@@ -44,6 +45,7 @@ import { updateCategoryTarget } from './targetService'
 import type { OverviewData } from './overviewTypes'
 import type { StatsData } from './statsTypes'
 import type { FundDetailData } from './fundDetailTypes'
+import type { AnalysisData } from './analysisTypes'
 
 export function registerDataIpc(): void {
   // 选择 Excel 文件；取消返回 null
@@ -170,6 +172,18 @@ export function registerDataIpc(): void {
       series: computeStatsSeries(funds, transactions, navPoints),
       positions: computePositions(funds, transactions, navPoints)
     }
+  })
+
+  // ---------- 分析页：持仓集中度指标（只读、本地计算） ----------
+
+  ipcMain.handle('analysis:data', (): AnalysisData => {
+    const db = getDb()
+    if (!hasAnyData(db)) return { metrics: computeConcentrationMetrics([]) }
+    const funds = selectFunds(db)
+    const transactions = selectTransactions(db)
+    const navPoints = selectNavPoints(db)
+    const positions = computePositions(funds, transactions, navPoints)
+    return { metrics: computeConcentrationMetrics(positions) }
   })
 
   // ---------- 基金详情：指标行 + 单基金收益走势 ----------

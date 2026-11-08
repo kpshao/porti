@@ -4,6 +4,7 @@ import type {
   TransactionRow,
   NavPoint,
   FundPosition,
+  ConcentrationMetrics,
   PositionGroup,
   Totals,
   SummaryScope,
@@ -178,6 +179,44 @@ export function computePositions(
       pnlRatio
     }
   })
+}
+
+/** 集中度指标（分析页）：以「可估值在持基金」（份额 > 0 且有市值）的市值为权重。
+ *  w_i = 基金市值_i ÷ Σ可估值在持基金市值；最大单只占比 = max(w_i)；
+ *  前三大占比 = 权重降序前三之和（不足三只取全部）；HHI = Σw_i²；
+ *  有效持仓数 = 1 ÷ HHI（HHI 为 0 时为 null，界面显示「—」）。
+ *  已清仓（份额 ≤ 0）与缺净值（marketValue === null）不参与权重，后者单独计数。
+ *  权重按降序、同权按基金代码升序，作为稳定输出契约。 */
+export function computeConcentrationMetrics(positions: FundPosition[]): ConcentrationMetrics {
+  const held = positions.filter(isHeld)
+  const valued = held.filter((p) => p.marketValue !== null)
+  const missingNavCount = held.length - valued.length
+  const total = valued.reduce((sum, p) => sum + (p.marketValue ?? 0), 0)
+  // 市值合计为 0（净值全为 0 等异常数据）时权重无定义：不产出权重，指标显示「—」
+  if (valued.length === 0 || total <= 0) {
+    return {
+      weights: [],
+      maxWeight: null,
+      top3Weight: null,
+      hhi: 0,
+      effectiveHoldings: null,
+      valuedCount: 0,
+      missingNavCount
+    }
+  }
+  const weights = valued
+    .map((p) => ({ fundCode: p.fundCode, weight: (p.marketValue as number) / total }))
+    .sort((a, b) => b.weight - a.weight || (a.fundCode < b.fundCode ? -1 : a.fundCode > b.fundCode ? 1 : 0))
+  const hhi = weights.reduce((sum, w) => sum + w.weight * w.weight, 0)
+  return {
+    weights,
+    maxWeight: weights[0].weight,
+    top3Weight: weights.slice(0, 3).reduce((sum, w) => sum + w.weight, 0),
+    hhi,
+    effectiveHoldings: hhi > 0 ? 1 / hhi : null,
+    valuedCount: weights.length,
+    missingNavCount
+  }
 }
 
 /** 汇总：总市值/持仓盈亏（浮动）/累计收益率/已实现盈亏/总收益。

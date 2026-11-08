@@ -7,6 +7,7 @@ import type { MigrationMeta } from '../../main/migrationService'
 import type { OverviewData } from '../../main/overviewTypes'
 import type { StatsData } from '../../main/statsTypes'
 import type { FundDetailData } from '../../main/fundDetailTypes'
+import type { AnalysisData } from '../../main/analysisTypes'
 
 declare global {
   interface DbInfo {
@@ -33,6 +34,7 @@ declare global {
       overviewData: () => Promise<OverviewData>
       targetUpdateCategory: (category: string, targetRatio: number) => Promise<void>
       statsData: () => Promise<StatsData>
+      analysisData: () => Promise<AnalysisData>
       fundDetailData: (fundCode: string, range: FundSeriesRange) => Promise<FundDetailData>
       exportExcel: () => Promise<{ path: string } | null>
       exportCsv: () => Promise<{ dir: string; files: string[] } | null>

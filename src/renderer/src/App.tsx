@@ -4,6 +4,7 @@ import Overview from './pages/Overview'
 import Transactions from './pages/Transactions'
 import NavHistory from './pages/NavHistory'
 import Stats from './pages/Stats'
+import Analysis from './pages/Analysis'
 import Settings from './pages/Settings'
 
 const PAGES = [
@@ -11,6 +12,7 @@ const PAGES = [
   { key: 'transactions', label: '交易流水', component: Transactions },
   { key: 'nav', label: '净值管理', component: NavHistory },
   { key: 'stats', label: '收益统计', component: Stats },
+  { key: 'analysis', label: '分析', component: Analysis },
   { key: 'settings', label: '设置', component: Settings }
 ] as const
 
