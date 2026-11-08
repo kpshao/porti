@@ -29,6 +29,7 @@ import {
   OTHER_CATEGORY,
   CLOSED_CATEGORY,
   computeScopedSummary,
+  computeConcentrationMetrics,
   xirr
 } from './compute'
 
@@ -1731,5 +1732,116 @@ describe('口径化汇总（computeScopedSummary）', () => {
     // 完整现金流：−1000（2025-01-01）、+1200 与 −500（2026-01-01）、期末 440（2027-01-01），
     // 按整年折现手算 r = 10%；若年化时钟从重建日重置，则为 440/500 − 1 = −12%
     expect(held.annualized).toBeCloseTo(0.1, 9)
+  })
+})
+
+describe('集中度指标（computeConcentrationMetrics，手算黄金值）', () => {
+  /** 构造在持持仓：集中度只关心份额与市值，其余字段给中性值 */
+  const pos = (fundCode: string, marketValue: number | null, shares = 100): FundPosition =>
+    mkPosition(fundCode, '权益', marketValue, shares)
+
+  it('空持仓：无可估值与缺净值，HHI 为 0，其余指标无定义', () => {
+    const m = computeConcentrationMetrics([])
+    expect(m.weights).toEqual([])
+    expect(m.valuedCount).toBe(0)
+    expect(m.missingNavCount).toBe(0)
+    expect(m.maxWeight).toBeNull()
+    expect(m.top3Weight).toBeNull()
+    expect(m.hhi).toBe(0)
+    expect(m.effectiveHoldings).toBeNull()
+  })
+
+  it('单只基金：权重 1、最大单只占比 1、前三大占比 1、HHI = 1、有效持仓数 = 1', () => {
+    const m = computeConcentrationMetrics([pos('A', 10000)])
+    expect(m.weights).toEqual([{ fundCode: 'A', weight: 1 }])
+    expect(m.maxWeight).toBe(1)
+    expect(m.top3Weight).toBe(1)
+    expect(m.hhi).toBe(1)
+    expect(m.effectiveHoldings).toBeCloseTo(1, 12)
+    expect(m.valuedCount).toBe(1)
+    expect(m.missingNavCount).toBe(0)
+  })
+
+  it('等权多只：每只 1/N、HHI = 1/N、有效持仓数 = N（权重和 = 1）', () => {
+    const m = computeConcentrationMetrics([pos('A', 250), pos('B', 250), pos('C', 250), pos('D', 250)])
+    expect(m.weights.map((w) => w.fundCode)).toEqual(['A', 'B', 'C', 'D'])
+    for (const w of m.weights) expect(w.weight).toBeCloseTo(0.25, 12)
+    expect(m.weights.reduce((s, w) => s + w.weight, 0)).toBeCloseTo(1, 12)
+    expect(m.maxWeight).toBeCloseTo(0.25, 12)
+    expect(m.top3Weight).toBeCloseTo(0.75, 12)
+    expect(m.hhi).toBeCloseTo(0.25, 12)
+    expect(m.effectiveHoldings).toBeCloseTo(4, 12)
+    expect(m.valuedCount).toBe(4)
+  })
+
+  it('前三大占比：不足三只取全部；超过三只取权重降序前三之和', () => {
+    const two = computeConcentrationMetrics([pos('A', 75), pos('B', 25)])
+    expect(two.top3Weight).toBe(1) // 只有两只：前三大占比 = 全部市值
+    expect(two.maxWeight).toBeCloseTo(0.75, 12)
+
+    const five = computeConcentrationMetrics([
+      pos('A', 40),
+      pos('B', 30),
+      pos('C', 20),
+      pos('D', 6),
+      pos('E', 4)
+    ])
+    expect(five.top3Weight).toBeCloseTo(0.9, 12) // 40% + 30% + 20%
+    expect(five.maxWeight).toBeCloseTo(0.4, 12)
+    // 40,30,20,6,4 → HHI = 0.16 + 0.09 + 0.04 + 0.0036 + 0.0016 = 0.2952
+    expect(five.hhi).toBeCloseTo(0.2952, 12)
+    expect(five.effectiveHoldings).toBeCloseTo(1 / 0.2952, 12)
+    expect(five.weights.map((w) => w.fundCode)).toEqual(['A', 'B', 'C', 'D', 'E'])
+  })
+
+  it('缺净值的在持基金排除并计数：不进入权重分母与 HHI', () => {
+    const m = computeConcentrationMetrics([pos('A', 300), pos('B', null), pos('C', 100)])
+    expect(m.valuedCount).toBe(2)
+    expect(m.missingNavCount).toBe(1)
+    expect(m.weights).toEqual([
+      { fundCode: 'A', weight: 0.75 },
+      { fundCode: 'C', weight: 0.25 }
+    ])
+    expect(m.maxWeight).toBeCloseTo(0.75, 12)
+    expect(m.top3Weight).toBe(1) // 可估值只有两只：仍取全部
+    expect(m.hhi).toBeCloseTo(0.625, 12)
+    expect(m.effectiveHoldings).toBeCloseTo(1.6, 12)
+  })
+
+  it('已清仓（份额 ≤ 0）排除：即使带市值也不计权重，且不算缺净值', () => {
+    const m = computeConcentrationMetrics([
+      pos('A', 500),
+      pos('B', 999, 0), // 份额归零
+      pos('C', 999, -10) // 超卖负份额
+    ])
+    expect(m.valuedCount).toBe(1)
+    expect(m.missingNavCount).toBe(0)
+    expect(m.weights).toEqual([{ fundCode: 'A', weight: 1 }])
+    expect(m.hhi).toBe(1)
+    expect(m.maxWeight).toBe(1)
+    expect(m.top3Weight).toBe(1)
+    expect(m.effectiveHoldings).toBeCloseTo(1, 12)
+  })
+
+  it('权重和恒为 1（含缺净值与已清仓混合）；权重降序、同权按基金代码升序', () => {
+    const m = computeConcentrationMetrics([
+      pos('300001', 100),
+      pos('100001', 300),
+      pos('200001', null),
+      pos('400001', 600, 0)
+    ])
+    expect(m.weights.reduce((s, w) => s + w.weight, 0)).toBeCloseTo(1, 12)
+    expect(m.weights.map((w) => w.fundCode)).toEqual(['100001', '300001'])
+    expect(m.weights[0].weight).toBeCloseTo(0.75, 12)
+    expect(m.valuedCount).toBe(2)
+    expect(m.missingNavCount).toBe(1)
+  })
+
+  it('显示精度：原始值保留足够精度，按界面约定舍入后稳定（占比 2 位 / HHI 3 位 / 有效持仓数 1 位）', () => {
+    // A:B = 1:2 → 权重 1/3 与 2/3；HHI = 1/9 + 4/9 = 5/9；有效持仓数 = 9/5
+    const m = computeConcentrationMetrics([pos('A', 1), pos('B', 2)])
+    expect(m.maxWeight!.toFixed(2)).toBe('0.67')
+    expect(m.hhi.toFixed(3)).toBe('0.556')
+    expect(m.effectiveHoldings!.toFixed(1)).toBe('1.8')
   })
 })
