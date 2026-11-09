@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
-import { initDatabase, dbInfo, getDb } from './db'
+import { dbInfo, getDb, initDatabase } from './db'
+import { registerAiIpc } from './aiIpc'
 import { registerDataIpc } from './dataIpc'
 import { autoFetchNavs } from './navService'
 
@@ -34,6 +35,7 @@ app.whenReady().then(() => {
   initDatabase()
   ipcMain.handle('db:info', () => dbInfo())
   registerDataIpc()
+  registerAiIpc()
   createWindow()
 
   // 启动自动抓取净值：不阻塞启动、失败静默（状态由净值管理页横幅展示）

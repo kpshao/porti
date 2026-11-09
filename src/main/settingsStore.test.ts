@@ -42,6 +42,63 @@ describe('settingsStore — 数据文件位置持久化', () => {
   })
 })
 
+describe('settingsStore — AI 配置字段', () => {
+  it('默认按未配置处理', () => {
+    expect(loadSettings(tempDir()).ai).toEqual({
+      baseUrl: '',
+      model: '',
+      encryptedKey: null,
+      firstSendNoticeConfirmed: false
+    })
+  })
+
+  it('读取合法 ai 字段；损坏的形状逐项回落默认值', () => {
+    const dir = tempDir()
+    writeFileSync(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        ai: {
+          baseUrl: ' https://api.example.com/v1 ',
+          model: 'example-model',
+          encryptedKey: 'cipher-text',
+          firstSendNoticeConfirmed: true
+        }
+      }),
+      'utf8'
+    )
+    expect(loadSettings(dir).ai).toEqual({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'example-model',
+      encryptedKey: 'cipher-text',
+      firstSendNoticeConfirmed: true
+    })
+
+    writeFileSync(
+      join(dir, 'settings.json'),
+      JSON.stringify({ ai: { baseUrl: 1, model: null, encryptedKey: '', firstSendNoticeConfirmed: 'yes' } }),
+      'utf8'
+    )
+    expect(loadSettings(dir).ai).toEqual({
+      baseUrl: '',
+      model: '',
+      encryptedKey: null,
+      firstSendNoticeConfirmed: false
+    })
+  })
+
+  it('保存数据文件位置不会丢失 AI 配置', () => {
+    const dir = tempDir()
+    writeFileSync(
+      join(dir, 'settings.json'),
+      JSON.stringify({ ai: { baseUrl: 'https://api.example.com/v1', model: 'm' } }),
+      'utf8'
+    )
+    saveDbPath(dir, '/x/porti.db')
+    expect(loadSettings(dir).ai.baseUrl).toBe('https://api.example.com/v1')
+    expect(loadSettings(dir).ai.model).toBe('m')
+  })
+})
+
 describe('settingsStore — 首启迁移引导跳过标记', () => {
   it('默认未跳过；保存后可读回，且不影响 dbPath', () => {
     const dir = tempDir()
