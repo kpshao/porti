@@ -236,7 +236,8 @@ try {
   const hhi = weights.reduce((s, w) => s + w.weight * w.weight, 0)
   expected = {
     heldCount: held.length,
-    valuedCount: weights.length,
+    // 可估值只数语义：即使市值合计异常为 0（weights 为空）仍计入
+    valuedCount: valued.length,
     missingNavCount,
     maxWeight: weights.length > 0 ? weights[0].weight : null,
     top3Weight:
@@ -332,6 +333,8 @@ if (expected.heldCount === 0) {
   process.exit(0)
 }
 
+// 空态条件 = 无可估值在持基金（expected.valuedCount 即 valued.length）；
+// 可估值 > 0 但市值合计异常为 0 时仍落到卡片分支，与引擎同口径。
 if (expected.valuedCount === 0) {
   // 有在持但全部缺最新净值：指标区应为空状态，缺净值数量明确提示
   check(state.hasCard === false, '无可估值在持基金时显示空状态（不渲染指标卡片）')

@@ -181,18 +181,15 @@ export function computePositions(
   })
 }
 
-/** 集中度指标（分析页）：以「可估值在持基金」（份额 > 0 且有市值）的市值为权重。
- *  w_i = 基金市值_i ÷ Σ可估值在持基金市值；最大单只占比 = max(w_i)；
- *  前三大占比 = 权重降序前三之和（不足三只取全部）；HHI = Σw_i²；
- *  有效持仓数 = 1 ÷ HHI（HHI 为 0 时为 null，界面显示「—」）。
- *  已清仓（份额 ≤ 0）与缺净值（marketValue === null）不参与权重，后者单独计数。
- *  权重按降序、同权按基金代码升序，作为稳定输出契约。 */
+/** 集中度指标（分析页）：口径与公式见 CONTEXT.md「集中度指标」。
+ *  missingNavCount 计入在持但 marketValue 为 null（缺最新净值）的基金；
+ *  weights 的排序契约见 ConcentrationMetrics.weights。 */
 export function computeConcentrationMetrics(positions: FundPosition[]): ConcentrationMetrics {
   const held = positions.filter(isHeld)
   const valued = held.filter((p) => p.marketValue !== null)
   const missingNavCount = held.length - valued.length
   const total = valued.reduce((sum, p) => sum + (p.marketValue ?? 0), 0)
-  // 市值合计为 0（净值全为 0 等异常数据）时权重无定义：不产出权重，指标显示「—」
+  // 市值合计为 0（净值异常）时权重无定义：不产出权重
   if (valued.length === 0 || total <= 0) {
     return {
       weights: [],
@@ -200,7 +197,7 @@ export function computeConcentrationMetrics(positions: FundPosition[]): Concentr
       top3Weight: null,
       hhi: 0,
       effectiveHoldings: null,
-      valuedCount: 0,
+      valuedCount: valued.length,
       missingNavCount
     }
   }
