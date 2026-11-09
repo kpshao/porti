@@ -6,6 +6,7 @@ import type { MigrationMeta } from '../main/migrationService'
 import type { OverviewData } from '../main/overviewTypes'
 import type { StatsData } from '../main/statsTypes'
 import type { FundDetailData } from '../main/fundDetailTypes'
+import type { AnalysisData } from '../main/analysisTypes'
 
 // 渲染进程可用的最小 API 面，后续里程碑逐步扩展
 const api = {
@@ -29,6 +30,7 @@ const api = {
   targetUpdateCategory: (category: string, targetRatio: number): Promise<void> =>
     ipcRenderer.invoke('target:update-category', category, targetRatio),
   statsData: (): Promise<StatsData> => ipcRenderer.invoke('stats:data'),
+  analysisData: (): Promise<AnalysisData> => ipcRenderer.invoke('analysis:data'),
   fundDetailData: (fundCode: string, range: FundSeriesRange): Promise<FundDetailData> =>
     ipcRenderer.invoke('fund-detail:data', fundCode, range),
   exportExcel: (): Promise<{ path: string } | null> => ipcRenderer.invoke('export:excel'),

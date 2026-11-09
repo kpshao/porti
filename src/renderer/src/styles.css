@@ -248,6 +248,11 @@ body {
   flex-wrap: wrap;
 }
 
+/* 分析页：指标行与等权基准之间的间距（基准是参照说明，不与指标抢层级） */
+.equal-weight-baseline {
+  margin-top: 12px;
+}
+
 /* 分解行：与结果行用一条细线隔开，运算符与数值底对齐，间距收到「一眼读成一个等式」的宽度 */
 .stat-row-parts {
   align-items: flex-end;

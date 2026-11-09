@@ -4,6 +4,7 @@ import type {
   TransactionRow,
   NavPoint,
   FundPosition,
+  ConcentrationMetrics,
   PositionGroup,
   Totals,
   SummaryScope,
@@ -178,6 +179,41 @@ export function computePositions(
       pnlRatio
     }
   })
+}
+
+/** 集中度指标（分析页）：口径与公式见 CONTEXT.md「集中度指标」。
+ *  missingNavCount 计入在持但 marketValue 为 null（缺最新净值）的基金；
+ *  weights 的排序契约见 ConcentrationMetrics.weights。 */
+export function computeConcentrationMetrics(positions: FundPosition[]): ConcentrationMetrics {
+  const held = positions.filter(isHeld)
+  const valued = held.filter((p) => p.marketValue !== null)
+  const missingNavCount = held.length - valued.length
+  const total = valued.reduce((sum, p) => sum + (p.marketValue ?? 0), 0)
+  // 市值合计为 0（净值异常）时权重无定义：不产出权重
+  if (valued.length === 0 || total <= 0) {
+    return {
+      weights: [],
+      maxWeight: null,
+      top3Weight: null,
+      hhi: 0,
+      effectiveHoldings: null,
+      valuedCount: valued.length,
+      missingNavCount
+    }
+  }
+  const weights = valued
+    .map((p) => ({ fundCode: p.fundCode, weight: (p.marketValue as number) / total }))
+    .sort((a, b) => b.weight - a.weight || (a.fundCode < b.fundCode ? -1 : a.fundCode > b.fundCode ? 1 : 0))
+  const hhi = weights.reduce((sum, w) => sum + w.weight * w.weight, 0)
+  return {
+    weights,
+    maxWeight: weights[0].weight,
+    top3Weight: weights.slice(0, 3).reduce((sum, w) => sum + w.weight, 0),
+    hhi,
+    effectiveHoldings: hhi > 0 ? 1 / hhi : null,
+    valuedCount: weights.length,
+    missingNavCount
+  }
 }
 
 /** 汇总：总市值/持仓盈亏（浮动）/累计收益率/已实现盈亏/总收益。

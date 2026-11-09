@@ -6,7 +6,8 @@ export default defineConfig({
       'src/engine/**/*.test.ts',
       'src/importer/**/*.test.ts',
       'src/fetcher/**/*.test.ts',
-      'src/main/**/*.test.ts'
+      'src/main/**/*.test.ts',
+      'src/renderer/**/*.test.ts'
     ],
     environment: 'node'
   }
