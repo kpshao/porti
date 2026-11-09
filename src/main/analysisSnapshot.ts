@@ -4,6 +4,8 @@
 // 每次发送时重新构建，不落库。
 
 import {
+  byDateThenId,
+  byFundCode,
   computeAnnualizedReturns,
   computeCategoryComparison,
   computeConcentrationMetrics,
@@ -11,6 +13,8 @@ import {
   computePositions,
   computeScopedSummary,
   costBasisStates,
+  isClosed,
+  isHeld,
   realizedPerSale
 } from '../engine'
 import type {
@@ -20,10 +24,10 @@ import type {
   Fund,
   FundPosition,
   NavPoint,
+  OperationType,
   ScopedSummary,
   TransactionRow
 } from '../engine'
-import { estimateTokens, SNAPSHOT_TOKEN_WARN } from './aiConfig'
 import type { SnapshotPreview } from './aiTypes'
 
 export interface SnapshotHolding {
@@ -50,7 +54,8 @@ export interface SnapshotCategoryRow {
   deviation: number | null
 }
 
-/** 单基金区间收益摘要：净值区间涨跌 + 区间末累计盈亏/收益率 + 年化（与界面同口径） */
+/** 单基金区间收益摘要。区间 = 该基金全部净值记录的首末日期；
+ *  累计收益与年化沿用界面同口径（不按 1m/3m/1y 截取）。 */
 export interface FundReturnSummary {
   fundCode: string
   name: string
@@ -69,7 +74,7 @@ export interface FundReturnSummary {
 
 export interface SnapshotTransaction {
   date: string
-  type: string
+  type: OperationType
   fundCode: string
   fundName: string | null
   amount: number
@@ -116,21 +121,6 @@ function byMarketValueDesc(a: FundPosition, b: FundPosition): number {
   return byFundCode(a, b)
 }
 
-function byFundCode(a: { fundCode: string }, b: { fundCode: string }): number {
-  return a.fundCode < b.fundCode ? -1 : a.fundCode > b.fundCode ? 1 : 0
-}
-
-/** 流水排序：日期升序、同日按主键升序（与库内查询 ORDER BY date, id 同一契约） */
-function byDateThenId(a: TransactionRow, b: TransactionRow): number {
-  if (a.date !== b.date) return a.date < b.date ? -1 : 1
-  return a.id - b.id
-}
-
-/** 是否已清仓（交易过且份额 ≤ 0）：与引擎 groupClosedPositions 同口径 */
-function isClosed(p: FundPosition): boolean {
-  return p.shares <= 0 && (p.invested !== 0 || p.redeemed !== 0)
-}
-
 export function buildAnalysisSnapshot(input: AnalysisSnapshotInput): AnalysisSnapshot {
   const { funds, transactions, navPoints, categoryTargets, today } = input
   const positions = computePositions(funds, transactions, navPoints)
@@ -159,7 +149,7 @@ export function buildAnalysisSnapshot(input: AnalysisSnapshotInput): AnalysisSna
     realizedIncome: realizedByCode.get(p.fundCode) ?? 0
   })
 
-  const held = positions.filter((p) => p.shares > 0).sort(byMarketValueDesc)
+  const held = positions.filter(isHeld).sort(byMarketValueDesc)
   const closed = positions.filter(isClosed).sort(byMarketValueDesc)
 
   const fundByName = new Map(funds.map((f) => [f.code, f]))
@@ -233,6 +223,14 @@ export function buildAnalysisSnapshot(input: AnalysisSnapshotInput): AnalysisSna
     fundReturns,
     transactions: transactionsOut
   }
+}
+
+/** 快照可能被模型截断的粗略 token 阈值（仅提示、不自动裁剪） */
+const SNAPSHOT_TOKEN_WARN = 60000
+
+/** 粗略 token 估算：按字符数 ÷ 3（中英混合的经验值），只用于发送前提示 */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 3)
 }
 
 /** 快照 → 发送前预览：格式化 JSON + 粗略 token 估算；超阈值只提示、不裁剪。 */

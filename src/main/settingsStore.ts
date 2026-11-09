@@ -1,6 +1,6 @@
 // 应用设置持久化：数据文件（SQLite）位置覆盖 + 首启迁移引导跳过标记 + AI 分析配置。
-// AI 的 API key 只存 safeStorage 加密后的密文字符串；本模块不接触 electron，便于测试。
 // 独立于 electron 以便测试（settingsDir 由调用方传入，生产环境为 app.getPath('userData')）。
+// AI 配置的读写规则（密钥加密、掩码）在 aiConfigStore，本模块只负责落盘与形状校验。
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'

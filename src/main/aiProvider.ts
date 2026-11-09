@@ -1,6 +1,6 @@
 // OpenAI 兼容 chat completions 客户端（流式）+ 测试连接。
 // HTTP 走注入接缝（生产为全局 fetch），单测用假流测试 SSE 拼接、usage、错误分类与 abort/超时。
-// 安全边界：key 只进 Authorization 头；错误信息固定为中文分类文案，不回显响应体，避免带出 key。
+// 本模块的错误文案固定为中文分类、不回显响应体（避免带出 key）；联网边界见 ADR-0003。
 
 import { buildChatCompletionsUrl } from './aiConfig'
 import type { AiConnectionTestResult } from './aiTypes'
@@ -33,8 +33,8 @@ export interface ProviderResponse {
 
 export type AiHttpPost = (request: ProviderRequest) => Promise<ProviderResponse>
 
-/** 流式请求的默认超时（从发起到流结束的总上限） */
-export const DEFAULT_STREAM_TIMEOUT_MS = 120000
+/** 流式请求的默认超时（从发起到流结束的总上限；长回答可被用户随时停止） */
+export const DEFAULT_STREAM_TIMEOUT_MS = 300000
 
 /** 测试连接超时（spec：15 秒） */
 export const TEST_TIMEOUT_MS = 15000
@@ -75,7 +75,7 @@ function httpError(status: number): AiProviderError {
     return new AiProviderError('rate-limit', `请求过于频繁或额度不足（HTTP ${status}）`, status)
   }
   if (status >= 500) {
-    return new AiProviderError('server', `AI 服务暂时不可用（HTTP ${status}）`, status)
+    return new AiProviderError('server', `AI 端点暂时不可用（HTTP ${status}）`, status)
   }
   return new AiProviderError('http', `AI 接口返回异常状态（HTTP ${status}）`, status)
 }
@@ -157,12 +157,12 @@ async function withRequestAbort<T>(
     if (e instanceof AiProviderError) throw e
     if (timedOut) {
       const seconds = Math.max(1, Math.round(timeoutMs / 1000))
-      throw new AiProviderError('timeout', `AI 服务响应超时（${seconds} 秒）`)
+      throw new AiProviderError('timeout', `AI 端点响应超时（${seconds} 秒）`)
     }
     if (externalSignal?.aborted === true) {
       throw new AiProviderError('aborted', '已停止生成')
     }
-    throw new AiProviderError('network', '无法连接 AI 服务，请检查网络或 API 地址')
+    throw new AiProviderError('network', '无法连接 AI 端点，请检查网络或 API 地址')
   } finally {
     clearTimeout(timer)
     externalSignal?.removeEventListener('abort', onExternalAbort)
@@ -175,6 +175,19 @@ function requestHeaders(apiKey: string): Record<string, string> {
     Accept: 'text/event-stream',
     Authorization: `Bearer ${apiKey}`
   }
+}
+
+/** 发一次 chat completions 请求并做状态分类（流式与测试连接共用；key 只在请求头里） */
+async function postChatCompletion(
+  httpPost: AiHttpPost,
+  signal: AbortSignal,
+  url: string,
+  apiKey: string,
+  body: string
+): Promise<ProviderResponse> {
+  const response = await httpPost({ url, headers: requestHeaders(apiKey), body, signal })
+  if (response.status < 200 || response.status >= 300) throw httpError(response.status)
+  return response
 }
 
 export interface StreamChatRequest {
@@ -207,20 +220,16 @@ export async function streamChatCompletion(
     messages: request.messages,
     temperature: 0.3,
     max_tokens: 4096,
-    stream: true
+    stream: true,
+    // 请求供应商在流末尾附带 usage（OpenAI 兼容字段；供应商可忽略，缺省时 usage 为 null）
+    stream_options: { include_usage: true }
   })
 
   return withRequestAbort(
     request.signal,
     request.timeoutMs ?? DEFAULT_STREAM_TIMEOUT_MS,
     async (signal) => {
-      const response = await httpPost({
-        url,
-        headers: requestHeaders(request.apiKey),
-        body,
-        signal
-      })
-      if (response.status < 200 || response.status >= 300) throw httpError(response.status)
+      const response = await postChatCompletion(httpPost, signal, url, request.apiKey, body)
 
       let content = ''
       let usage: ChatUsage | null = null
@@ -276,13 +285,7 @@ export async function testAiConnection(
       stream: false
     })
     await withRequestAbort(undefined, timeoutMs, async (signal) => {
-      const response = await httpPost({
-        url,
-        headers: requestHeaders(request.apiKey),
-        body,
-        signal
-      })
-      if (response.status < 200 || response.status >= 300) throw httpError(response.status)
+      await postChatCompletion(httpPost, signal, url, request.apiKey, body)
     })
     return { ok: true, message: '连接成功' }
   } catch (e) {

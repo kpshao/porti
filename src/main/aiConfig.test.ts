@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildChatCompletionsUrl,
-  estimateTokens,
   maskApiKey,
   normalizeAiBaseUrl,
-  normalizeAiModel,
-  SNAPSHOT_TOKEN_WARN
+  normalizeAiModel
 } from './aiConfig'
 
 describe('aiConfig — base URL 校验', () => {
@@ -49,17 +47,5 @@ describe('aiConfig — 模型名与密钥掩码', () => {
     expect(maskApiKey('sk-1234567890abcd')).toBe('sk-…abcd')
     expect(maskApiKey('short')).toBe('••••')
     expect(maskApiKey('12345678')).toBe('••••')
-  })
-})
-
-describe('aiConfig — 快照 token 粗略估算', () => {
-  it('按字符数估算，空串为 0', () => {
-    expect(estimateTokens('')).toBe(0)
-    expect(estimateTokens('abc')).toBe(1)
-    expect(estimateTokens('abcdef')).toBe(2)
-  })
-
-  it('超过 60k 视为可能被截断', () => {
-    expect(SNAPSHOT_TOKEN_WARN).toBe(60000)
   })
 })

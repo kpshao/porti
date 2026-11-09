@@ -1,6 +1,6 @@
 // AI 配置与快照 IPC（主进程侧）：读取/保存配置、测试连接、首次发送说明确认、快照预览。
 // 对话的流式 IPC 由后续工单实现；本模块不发起除「测试连接」外的任何网络请求。
-// 安全边界：明文 key 只在主进程解密；本模块返回给渲染进程的配置视图只有 hasKey 与掩码。
+// 密钥与联网边界见 ADR-0003；配置视图的构造在 aiConfigStore。
 
 import { app, ipcMain, safeStorage } from 'electron'
 import { normalizeAiBaseUrl, normalizeAiModel } from './aiConfig'

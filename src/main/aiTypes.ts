@@ -1,5 +1,4 @@
-// AI 分析的 IPC 契约类型（主进程与界面共用，纯类型无运行时依赖）。
-// 明文 API key 永不进入这些类型：界面只能拿到 hasKey 与掩码。
+// AI 分析的 IPC 契约类型（主进程与界面共用，纯类型无运行时依赖）。安全边界见 ADR-0003。
 
 /** 设置页读取的 AI 配置视图（不含明文 key） */
 export interface AiConfigView {

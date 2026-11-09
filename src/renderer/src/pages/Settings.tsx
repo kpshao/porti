@@ -38,19 +38,37 @@ export default function Settings(): React.JSX.Element {
   const aiPresetModelHint =
     AI_PROVIDER_PRESETS.find((p) => p.label === aiPreset)?.modelHint ?? '例如 gpt-4o-mini'
 
-  /** AI 卡片自己的消息区：与数据备份操作互不覆盖 */
-  const runAi = async (busyKey: 'save' | 'test', fn: () => Promise<void>): Promise<void> => {
-    setAiError(null)
-    setAiMessage(null)
-    setAiBusy(busyKey)
+  /** 异步操作的公共包装：清旧消息 → 忙态 → 错误回显 → 复位（数据备份与 AI 按钮共用） */
+  const runAction = async <T extends string>(
+    setBusyState: (value: T | null) => void,
+    busyKey: T,
+    clearMessages: () => void,
+    fail: (message: string) => void,
+    fn: () => Promise<void>
+  ): Promise<void> => {
+    clearMessages()
+    setBusyState(busyKey)
     try {
       await fn()
     } catch (e) {
-      setAiError(ipcErrorMessage(e))
+      fail(ipcErrorMessage(e))
     } finally {
-      setAiBusy(null)
+      setBusyState(null)
     }
   }
+
+  /** AI 卡片自己的消息区：与数据备份操作互不覆盖 */
+  const runAi = (busyKey: 'save' | 'test', fn: () => Promise<void>): Promise<void> =>
+    runAction(
+      setAiBusy,
+      busyKey,
+      () => {
+        setAiError(null)
+        setAiMessage(null)
+      },
+      setAiError,
+      fn
+    )
 
   const selectAiPreset = (label: string): void => {
     setAiPreset(label)
@@ -87,22 +105,20 @@ export default function Settings(): React.JSX.Element {
     })
   }
 
-  /** 异步操作的公共包装：清旧消息 → 忙态 → 错误回显 → 复位（各按钮共用） */
-  const run = async (
+  const run = (
     busyKey: 'excel' | 'csv' | 'path' | 'migrate-out' | 'migrate-in',
     fn: () => Promise<void>
-  ): Promise<void> => {
-    setError(null)
-    setMessage(null)
-    setBusy(busyKey)
-    try {
-      await fn()
-    } catch (e) {
-      setError(ipcErrorMessage(e))
-    } finally {
-      setBusy(null)
-    }
-  }
+  ): Promise<void> =>
+    runAction(
+      setBusy,
+      busyKey,
+      () => {
+        setError(null)
+        setMessage(null)
+      },
+      setError,
+      fn
+    )
 
   const doExportExcel = (): void => {
     void run('excel', async () => {
@@ -251,7 +267,11 @@ export default function Settings(): React.JSX.Element {
             <span>API 地址（base URL，填到 /v1 一级）</span>
             <input
               value={aiBaseUrl}
-              onChange={(e) => setAiBaseUrl(e.target.value)}
+              onChange={(e) => {
+                setAiBaseUrl(e.target.value)
+                // 手改地址后不再代表所选预设，避免预设标签与地址不一致
+                setAiPreset('')
+              }}
               placeholder="https://api.openai.com/v1"
             />
           </label>

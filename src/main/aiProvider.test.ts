@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  AiProviderError,
-  streamChatCompletion,
-  TEST_TIMEOUT_MS,
-  testAiConnection
-} from './aiProvider'
+import { AiProviderError, streamChatCompletion, testAiConnection } from './aiProvider'
 import type { AiHttpPost, ProviderRequest, ProviderResponse } from './aiProvider'
 import type { ChatMessage } from './aiProvider'
 
@@ -117,7 +112,9 @@ describe('aiProvider — 流式拼接与 usage', () => {
       messages: MESSAGES,
       temperature: 0.3,
       max_tokens: 4096,
-      stream: true
+      stream: true,
+      // 请求流末尾附带 usage（供应商可忽略）
+      stream_options: { include_usage: true }
     })
     expect(req.body).not.toContain(SECRET_KEY)
   })
@@ -185,7 +182,7 @@ describe('aiProvider — 错误分类', () => {
       )
     )
     expect(error.kind).toBe('network')
-    expect(error.message).toBe('无法连接 AI 服务，请检查网络或 API 地址')
+    expect(error.message).toBe('无法连接 AI 端点，请检查网络或 API 地址')
   })
 
   it('无法解析的数据块按 protocol 分类', async () => {
@@ -253,9 +250,5 @@ describe('aiProvider — 测试连接', () => {
     )
     expect(invalid.ok).toBe(false)
     expect(invalid.message).toContain('https')
-  })
-
-  it('默认超时为 15 秒', () => {
-    expect(TEST_TIMEOUT_MS).toBe(15000)
   })
 })

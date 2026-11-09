@@ -1,7 +1,6 @@
-// AI 配置与密钥存储（主进程）。
-// 注入 settingsDir 与加解密接缝（生产为 Electron safeStorage），便于用临时目录 + 假 cipher 单测。
-// 安全边界：明文 key 只在主进程内存在；落盘只写密文，读配置只返回 hasKey 与掩码，
-// safeStorage 不可用时拒绝保存 key（不降级明文）。
+// AI 配置与密钥存储（主进程）。注入 settingsDir 与加解密接缝（生产为 Electron safeStorage），
+// 便于用临时目录 + 假 cipher 单测。联网与密钥边界见 ADR-0003；
+// 本模块是「读配置只返回掩码、落盘只写密文」这条契约的定义处。
 
 import { loadSettings, saveSettings } from './settingsStore'
 import type { AiSettings } from './settingsStore'
@@ -24,27 +23,28 @@ export interface AiSecretConfig {
   apiKey: string
 }
 
+/** 解密已保存的 key：未保存、safeStorage 不可用或密文损坏（换机、系统凭据损坏）返回 null。 */
+function decryptStoredKey(ai: AiSettings, cipher: KeyCipher): string | null {
+  if (ai.encryptedKey === null || !cipher.isAvailable()) return null
+  try {
+    return cipher.decrypt(ai.encryptedKey)
+  } catch {
+    return null
+  }
+}
+
 /** 读取 AI 配置视图：解密失败或 safeStorage 不可用一律按「未配置 key」处理。 */
 export function loadAiConfigView(settingsDir: string, cipher: KeyCipher): AiConfigView {
   const ai = loadSettings(settingsDir).ai
-  const safeStorageAvailable = cipher.isAvailable()
-  let hasKey = false
-  let keyMask: string | null = null
-  if (ai.encryptedKey !== null && safeStorageAvailable) {
-    try {
-      keyMask = maskApiKey(cipher.decrypt(ai.encryptedKey))
-      hasKey = true
-    } catch {
-      // 解密失败（换机、系统凭据损坏）：按未配置处理，不阻塞设置页
-    }
-  }
+  const plainKey = decryptStoredKey(ai, cipher)
+  const hasKey = plainKey !== null
   return {
     baseUrl: ai.baseUrl,
     model: ai.model,
     hasKey,
-    keyMask,
+    keyMask: plainKey === null ? null : maskApiKey(plainKey),
     firstSendNoticeConfirmed: ai.firstSendNoticeConfirmed,
-    safeStorageAvailable,
+    safeStorageAvailable: cipher.isAvailable(),
     configured: ai.baseUrl !== '' && ai.model !== '' && hasKey
   }
 }
@@ -88,11 +88,8 @@ export function readAiSecretConfig(
   cipher: KeyCipher
 ): AiSecretConfig | null {
   const ai = loadSettings(settingsDir).ai
-  if (ai.baseUrl === '' || ai.model === '' || ai.encryptedKey === null) return null
-  if (!cipher.isAvailable()) return null
-  try {
-    return { baseUrl: ai.baseUrl, model: ai.model, apiKey: cipher.decrypt(ai.encryptedKey) }
-  } catch {
-    return null
-  }
+  if (ai.baseUrl === '' || ai.model === '') return null
+  const apiKey = decryptStoredKey(ai, cipher)
+  if (apiKey === null) return null
+  return { baseUrl: ai.baseUrl, model: ai.model, apiKey }
 }
