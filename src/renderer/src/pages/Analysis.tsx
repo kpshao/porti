@@ -4,19 +4,18 @@ import { formatEffectiveHoldings, formatHhi, formatPercent } from '../utils/form
 import { ipcErrorMessage } from '../utils/ipc'
 
 /** 分析页（指标区）：本地计算的持仓集中度指标，只读、不依赖 AI 配置。
- *  口径：权重只按「可估值在持基金」（份额 > 0 且有最新净值）的市值计算，
- *  已清仓与缺净值基金不参与；参照只显示等权基准 1/N，不设阈值或颜色判断。 */
+ *  口径见 CONTEXT.md「集中度指标」。 */
 export default function Analysis(): React.JSX.Element {
   const [data, setData] = useState<AnalysisData | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // 切页即重挂载，进入本页自动取最新数据（与概览/收益统计页同模式）
+  // 挂载时取数；数据变化后由离开/重新进入本页刷新
   useEffect(() => {
     window.api.analysisData().then(setData).catch((e) => setError(ipcErrorMessage(e)))
   }, [])
 
   const metrics = data?.metrics ?? null
-  const hasValued = metrics !== null && metrics.valuedCount > 0
+  const hasValuedHoldings = metrics !== null && metrics.valuedCount > 0
 
   return (
     <section className="page">
@@ -24,7 +23,7 @@ export default function Analysis(): React.JSX.Element {
 
       {error !== null && <div className="banner banner-error">{error}</div>}
 
-      {metrics !== null && !hasValued && (
+      {metrics !== null && metrics.valuedCount === 0 && (
         <p className="placeholder">
           {metrics.missingNavCount > 0
             ? `当前 ${metrics.missingNavCount} 只在持基金都缺最新净值，无法计算集中度指标。请先在「净值管理」补录净值。`
@@ -32,7 +31,7 @@ export default function Analysis(): React.JSX.Element {
         </p>
       )}
 
-      {hasValued && (
+      {hasValuedHoldings && (
         <div className="card">
           <h2>集中度指标</h2>
           <div className="stat-row">

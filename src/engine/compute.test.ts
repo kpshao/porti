@@ -1751,6 +1751,17 @@ describe('集中度指标（computeConcentrationMetrics，手算黄金值）', (
     expect(m.effectiveHoldings).toBeNull()
   })
 
+  it('有可估值持仓但市值合计为 0（异常净值）：不产出权重，valuedCount 仍为可估值只数', () => {
+    const m = computeConcentrationMetrics([pos('A', 0), pos('B', 0), pos('C', null)])
+    expect(m.weights).toEqual([])
+    expect(m.maxWeight).toBeNull()
+    expect(m.top3Weight).toBeNull()
+    expect(m.hhi).toBe(0)
+    expect(m.effectiveHoldings).toBeNull()
+    expect(m.valuedCount).toBe(2) // 可估值只数，不受市值合计异常影响
+    expect(m.missingNavCount).toBe(1)
+  })
+
   it('单只基金：权重 1、最大单只占比 1、前三大占比 1、HHI = 1、有效持仓数 = 1', () => {
     const m = computeConcentrationMetrics([pos('A', 10000)])
     expect(m.weights).toEqual([{ fundCode: 'A', weight: 1 }])
@@ -1837,11 +1848,10 @@ describe('集中度指标（computeConcentrationMetrics，手算黄金值）', (
     expect(m.missingNavCount).toBe(1)
   })
 
-  it('显示精度：原始值保留足够精度，按界面约定舍入后稳定（占比 2 位 / HHI 3 位 / 有效持仓数 1 位）', () => {
-    // A:B = 1:2 → 权重 1/3 与 2/3；HHI = 1/9 + 4/9 = 5/9；有效持仓数 = 9/5
+  it('原始值不按界面精度舍入：A:B = 1:2 → 最大占比 2/3、HHI 5/9、有效持仓数 9/5', () => {
     const m = computeConcentrationMetrics([pos('A', 1), pos('B', 2)])
-    expect(m.maxWeight!.toFixed(2)).toBe('0.67')
-    expect(m.hhi.toFixed(3)).toBe('0.556')
-    expect(m.effectiveHoldings!.toFixed(1)).toBe('1.8')
+    expect(m.maxWeight).toBeCloseTo(2 / 3, 15)
+    expect(m.hhi).toBeCloseTo(5 / 9, 15)
+    expect(m.effectiveHoldings).toBeCloseTo(9 / 5, 15)
   })
 })
