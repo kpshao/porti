@@ -31,6 +31,7 @@ import { reconcileAgainstExcel } from '../importer/reconcile'
 import { parseExcelFile } from '../importer/parse'
 import { importToDb } from '../importer/write'
 import type { CommitPayload, ImportOutcome, TxData } from '../importer/types'
+import { todayString } from './date'
 import { getDb, swapDatabase } from './db'
 import { buildExportData, writeExportCsvs, writeExportExcel } from './exportService'
 import { createMigrationBundle, uniqueBackupPath, validateMigrationBundle } from './migrationService'
@@ -329,13 +330,6 @@ export function registerDataIpc(): void {
     app.relaunch()
     app.quit()
   })
-}
-
-/** 本地时区今日 YYYY-MM-DD（导出默认文件名与年化期末估值日用） */
-function todayString(): string {
-  const d = new Date()
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 /** 汇总数据组装：同一组入参一次算好两种口径（all/held）与单基金年化映射。

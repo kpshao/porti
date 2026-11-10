@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import type { AiConfigView } from '../../../main/aiTypes'
+import { AI_PROVIDER_PRESETS } from '../utils/aiPresets'
 import { ipcErrorMessage } from '../utils/ipc'
 
 export default function Settings(): React.JSX.Element {
@@ -8,26 +10,115 @@ export default function Settings(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [newPath, setNewPath] = useState<string | null>(null)
 
+  // AI 分析配置：读取只拿掩码；key 输入框留空表示不更改已保存的 key
+  const [aiConfig, setAiConfig] = useState<AiConfigView | null>(null)
+  const [aiBaseUrl, setAiBaseUrl] = useState('')
+  const [aiModel, setAiModel] = useState('')
+  const [aiKey, setAiKey] = useState('')
+  const [aiPreset, setAiPreset] = useState('')
+  const [aiBusy, setAiBusy] = useState<'save' | 'test' | null>(null)
+  const [aiMessage, setAiMessage] = useState<string | null>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
+
   useEffect(() => {
     window.api.dbInfo().then(setDbInfo).catch((e) => setError(ipcErrorMessage(e)))
   }, [])
 
-  /** 异步操作的公共包装：清旧消息 → 忙态 → 错误回显 → 复位（各按钮共用） */
-  const run = async (
-    busyKey: 'excel' | 'csv' | 'path' | 'migrate-out' | 'migrate-in',
+  useEffect(() => {
+    window.api
+      .aiConfigGet()
+      .then((view) => {
+        setAiConfig(view)
+        setAiBaseUrl(view.baseUrl)
+        setAiModel(view.model)
+      })
+      .catch((e) => setAiError(ipcErrorMessage(e)))
+  }, [])
+
+  const aiPresetModelHint =
+    AI_PROVIDER_PRESETS.find((p) => p.label === aiPreset)?.modelHint ?? '例如 gpt-4o-mini'
+
+  /** 异步操作的公共包装：清旧消息 → 忙态 → 错误回显 → 复位（数据备份与 AI 按钮共用） */
+  const runAction = async <T extends string>(
+    setBusyState: (value: T | null) => void,
+    busyKey: T,
+    clearMessages: () => void,
+    fail: (message: string) => void,
     fn: () => Promise<void>
   ): Promise<void> => {
-    setError(null)
-    setMessage(null)
-    setBusy(busyKey)
+    clearMessages()
+    setBusyState(busyKey)
     try {
       await fn()
     } catch (e) {
-      setError(ipcErrorMessage(e))
+      fail(ipcErrorMessage(e))
     } finally {
-      setBusy(null)
+      setBusyState(null)
     }
   }
+
+  /** AI 卡片自己的消息区：与数据备份操作互不覆盖 */
+  const runAi = (busyKey: 'save' | 'test', fn: () => Promise<void>): Promise<void> =>
+    runAction(
+      setAiBusy,
+      busyKey,
+      () => {
+        setAiError(null)
+        setAiMessage(null)
+      },
+      setAiError,
+      fn
+    )
+
+  const selectAiPreset = (label: string): void => {
+    setAiPreset(label)
+    const preset = AI_PROVIDER_PRESETS.find((p) => p.label === label)
+    if (preset !== undefined) setAiBaseUrl(preset.baseUrl)
+  }
+
+  const aiInput = (): { baseUrl: string; model: string; apiKey: string | null } => ({
+    baseUrl: aiBaseUrl,
+    model: aiModel,
+    apiKey: aiKey.trim() === '' ? null : aiKey.trim()
+  })
+
+  const saveAiConfig = (): void => {
+    void runAi('save', async () => {
+      const view = await window.api.aiConfigSave(aiInput())
+      setAiConfig(view)
+      setAiBaseUrl(view.baseUrl)
+      setAiModel(view.model)
+      setAiKey('')
+      setAiMessage(
+        view.hasKey
+          ? `AI 配置已保存，API key 已加密保存（${view.keyMask}）`
+          : 'AI 配置已保存（尚未设置 API key，分析对话暂不可用）'
+      )
+    })
+  }
+
+  const testAiConfig = (): void => {
+    void runAi('test', async () => {
+      const result = await window.api.aiConfigTest(aiInput())
+      if (result.ok) setAiMessage(result.message)
+      else setAiError(result.message)
+    })
+  }
+
+  const run = (
+    busyKey: 'excel' | 'csv' | 'path' | 'migrate-out' | 'migrate-in',
+    fn: () => Promise<void>
+  ): Promise<void> =>
+    runAction(
+      setBusy,
+      busyKey,
+      () => {
+        setError(null)
+        setMessage(null)
+      },
+      setError,
+      fn
+    )
 
   const doExportExcel = (): void => {
     void run('excel', async () => {
@@ -141,6 +232,82 @@ export default function Settings(): React.JSX.Element {
           </button>
           <button className="btn" onClick={doImportBundle} disabled={busy !== null}>
             {busy === 'migrate-in' ? '导入中…' : '导入迁移包…'}
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>AI 分析</h2>
+        <p className="muted">
+          配置 OpenAI 兼容的 chat completions 端点后，可在「分析」页就当前持仓向 AI 提问。
+          这是除净值抓取外唯一的联网能力：只有你点击发送时才会请求，数据只发往下面填写的地址。
+        </p>
+
+        {aiError !== null && <div className="banner banner-error">{aiError}</div>}
+        {aiMessage !== null && <div className="banner banner-success">{aiMessage}</div>}
+        {aiConfig !== null && !aiConfig.safeStorageAvailable && (
+          <div className="banner banner-info">
+            当前系统不支持安全存储（safeStorage），无法保存 API key（不会降级为明文）；地址与模型仍可保存。
+          </div>
+        )}
+
+        <div className="form-grid">
+          <label className="form-field">
+            <span>供应商预设（只填地址，不自动选模型）</span>
+            <select value={aiPreset} onChange={(e) => selectAiPreset(e.target.value)}>
+              <option value="">自定义</option>
+              {AI_PROVIDER_PRESETS.map((preset) => (
+                <option key={preset.label} value={preset.label}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="form-field">
+            <span>API 地址（base URL，填到 /v1 一级）</span>
+            <input
+              value={aiBaseUrl}
+              onChange={(e) => {
+                setAiBaseUrl(e.target.value)
+                // 手改地址后不再代表所选预设，避免预设标签与地址不一致
+                setAiPreset('')
+              }}
+              placeholder="https://api.openai.com/v1"
+            />
+          </label>
+          <label className="form-field">
+            <span>模型名</span>
+            <input
+              value={aiModel}
+              onChange={(e) => setAiModel(e.target.value)}
+              placeholder={aiPresetModelHint}
+            />
+          </label>
+          <label className="form-field">
+            <span>
+              API key
+              {aiConfig !== null && aiConfig.hasKey ? `（已保存：${aiConfig.keyMask}）` : ''}
+            </span>
+            <input
+              type="password"
+              autoComplete="off"
+              value={aiKey}
+              onChange={(e) => setAiKey(e.target.value)}
+              placeholder={aiConfig !== null && aiConfig.hasKey ? '留空表示不更改' : 'sk-...'}
+            />
+          </label>
+        </div>
+
+        <p className="muted">
+          API key 使用系统安全存储加密后保存在本机；保存后只显示掩码，不会再回显明文，也不会写入日志或分析快照。
+        </p>
+
+        <div className="settings-actions">
+          <button className="btn" onClick={testAiConfig} disabled={aiBusy !== null}>
+            {aiBusy === 'test' ? '测试中…' : '测试连接'}
+          </button>
+          <button className="btn btn-primary" onClick={saveAiConfig} disabled={aiBusy !== null}>
+            {aiBusy === 'save' ? '保存中…' : '保存 AI 配置'}
           </button>
         </div>
       </div>

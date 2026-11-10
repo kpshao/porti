@@ -7,6 +7,7 @@ import type { OverviewData } from '../main/overviewTypes'
 import type { StatsData } from '../main/statsTypes'
 import type { FundDetailData } from '../main/fundDetailTypes'
 import type { AnalysisData } from '../main/analysisTypes'
+import type { AiConfigInput, AiConfigView, AiConnectionTestResult, SnapshotPreview } from '../main/aiTypes'
 
 // 渲染进程可用的最小 API 面，后续里程碑逐步扩展
 const api = {
@@ -31,6 +32,13 @@ const api = {
     ipcRenderer.invoke('target:update-category', category, targetRatio),
   statsData: (): Promise<StatsData> => ipcRenderer.invoke('stats:data'),
   analysisData: (): Promise<AnalysisData> => ipcRenderer.invoke('analysis:data'),
+  aiConfigGet: (): Promise<AiConfigView> => ipcRenderer.invoke('ai:config:get'),
+  aiConfigSave: (input: AiConfigInput): Promise<AiConfigView> =>
+    ipcRenderer.invoke('ai:config:save', input),
+  aiConfigTest: (input: AiConfigInput): Promise<AiConnectionTestResult> =>
+    ipcRenderer.invoke('ai:config:test', input),
+  aiConfirmFirstSend: (): Promise<void> => ipcRenderer.invoke('ai:first-send-confirm'),
+  aiSnapshotPreview: (): Promise<SnapshotPreview> => ipcRenderer.invoke('ai:snapshot-preview'),
   fundDetailData: (fundCode: string, range: FundSeriesRange): Promise<FundDetailData> =>
     ipcRenderer.invoke('fund-detail:data', fundCode, range),
   exportExcel: (): Promise<{ path: string } | null> => ipcRenderer.invoke('export:excel'),

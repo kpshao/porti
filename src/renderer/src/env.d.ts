@@ -8,6 +8,7 @@ import type { OverviewData } from '../../main/overviewTypes'
 import type { StatsData } from '../../main/statsTypes'
 import type { FundDetailData } from '../../main/fundDetailTypes'
 import type { AnalysisData } from '../../main/analysisTypes'
+import type { AiConfigInput, AiConfigView, AiConnectionTestResult, SnapshotPreview } from '../../main/aiTypes'
 
 declare global {
   interface DbInfo {
@@ -35,6 +36,11 @@ declare global {
       targetUpdateCategory: (category: string, targetRatio: number) => Promise<void>
       statsData: () => Promise<StatsData>
       analysisData: () => Promise<AnalysisData>
+      aiConfigGet: () => Promise<AiConfigView>
+      aiConfigSave: (input: AiConfigInput) => Promise<AiConfigView>
+      aiConfigTest: (input: AiConfigInput) => Promise<AiConnectionTestResult>
+      aiConfirmFirstSend: () => Promise<void>
+      aiSnapshotPreview: () => Promise<SnapshotPreview>
       fundDetailData: (fundCode: string, range: FundSeriesRange) => Promise<FundDetailData>
       exportExcel: () => Promise<{ path: string } | null>
       exportCsv: () => Promise<{ dir: string; files: string[] } | null>

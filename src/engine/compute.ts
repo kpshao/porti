@@ -89,7 +89,10 @@ export function applyCostBasis(state: CostBasisState, t: Transaction): CostBasis
 
 /** 流水时序：按 (date, id) 升序——库内查询 ORDER BY date, id 同规则，全代码库的时序约定
  *  只此一处定义。未入库的流水没有 id（调用方按库内次序传入），退化为按日期稳定排序。 */
-function byDateThenId(a: Transaction & { id?: number }, b: Transaction & { id?: number }): number {
+export function byDateThenId(
+  a: Transaction & { id?: number },
+  b: Transaction & { id?: number }
+): number {
   if (a.date !== b.date) return a.date < b.date ? -1 : 1
   return (a.id ?? 0) - (b.id ?? 0)
 }
@@ -252,9 +255,9 @@ function isCategory(value: string): boolean {
   return (CATEGORIES as readonly string[]).includes(value)
 }
 
-/** 组内排序：基金代码升序。代码是主键、不并列，故无需 tie-break；
- *  与导出「持仓明细」同向（那边也是代码升序），界面与导出在同一大类内部排序一致。 */
-function byFundCode(a: FundPosition, b: FundPosition): number {
+/** 基金代码升序：代码是主键、不并列，故无需 tie-break。
+ *  全代码库的基金排序契约只此一处定义（持仓分组、快照基金收益摘要共用）。 */
+export function byFundCode(a: { fundCode: string }, b: { fundCode: string }): number {
   return a.fundCode < b.fundCode ? -1 : a.fundCode > b.fundCode ? 1 : 0
 }
 
@@ -299,7 +302,7 @@ function groupAnnualized(
 
 /** 是否在持：份额 > 0 才算是一个仓位。份额 ≤ 0 的是已清仓（归零）或超卖（负份额数据错误），
  *  两者都不该出现在按大类分的持仓里，也不该参与投入比例。 */
-function isHeld(p: FundPosition): boolean {
+export function isHeld(p: FundPosition): boolean {
   return p.shares > 0
 }
 
@@ -346,11 +349,16 @@ function hasTraded(p: FundPosition): boolean {
   return p.invested !== 0 || p.redeemed !== 0
 }
 
+/** 是否已清仓：交易过且份额 ≤ 0。与 isHeld 互补的判据（表尾分组与分析快照共用）。 */
+export function isClosed(p: FundPosition): boolean {
+  return !isHeld(p) && hasTraded(p)
+}
+
 /** 已清仓持仓（交易过、现份额 ≤ 0）合成表尾单独一组；无此类持仓时为 null。
  *  组头市值恒为 null（份额 ≤ 0 时市值恒为 0 或未知，没有可合计的口径）；组内按基金代码升序。
  *  与 groupPositionsByCategory 互补：两者并集 = 有过流水的持仓、交集为空（从未建仓的两边都不在）。 */
 export function groupClosedPositions(positions: FundPosition[]): PositionGroup | null {
-  const rows = positions.filter((p) => !isHeld(p) && hasTraded(p)).sort(byFundCode)
+  const rows = positions.filter(isClosed).sort(byFundCode)
   if (rows.length === 0) return null
   // 已清仓组不是资产大类，没有大类收益指标：两项恒为空
   return { category: CLOSED_CATEGORY, marketValue: null, pnlRatio: null, annualized: null, positions: rows }
