@@ -6,6 +6,7 @@ import {
   confirmFirstSendNotice,
   loadAiConfigView,
   readAiSecretConfig,
+  resolveApiKey,
   saveAiConfig
 } from './aiConfigStore'
 import type { KeyCipher } from './aiConfigStore'
@@ -147,6 +148,30 @@ describe('aiConfigStore — 解密失败与配置损坏按未配置处理', () =
       model: '',
       hasKey: false
     })
+  })
+})
+
+describe('aiConfigStore — 测试连接选用 key（resolveApiKey）', () => {
+  it('本次输入优先：trim 后返回输入的 key，即使已保存另一把', () => {
+    const dir = tempDir()
+    saveAiConfig(dir, INPUT, fakeCipher())
+
+    expect(resolveApiKey(dir, '  sk-typed-key  ', fakeCipher())).toBe('sk-typed-key')
+  })
+
+  it('输入为 null 或空白时回退已保存的 key', () => {
+    const dir = tempDir()
+    saveAiConfig(dir, INPUT, fakeCipher())
+
+    expect(resolveApiKey(dir, null, fakeCipher())).toBe(INPUT.apiKey)
+    expect(resolveApiKey(dir, '   ', fakeCipher())).toBe(INPUT.apiKey)
+  })
+
+  it('既没有本次输入也没有已保存的 key 时返回 null', () => {
+    const dir = tempDir()
+
+    expect(resolveApiKey(dir, null, fakeCipher())).toBeNull()
+    expect(resolveApiKey(dir, '', fakeCipher())).toBeNull()
   })
 })
 

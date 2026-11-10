@@ -21,6 +21,13 @@ export interface AiConfigInput {
   apiKey: string | null
 }
 
+/** 主进程发起请求所需的连接凭据（含明文 key，绝不跨 IPC） */
+export interface AiCredentials {
+  baseUrl: string
+  model: string
+  apiKey: string
+}
+
 /** 「测试连接」结果：失败原因已按 401/403、404、429、网络、超时分类为中文提示 */
 export interface AiConnectionTestResult {
   ok: boolean

@@ -5,7 +5,7 @@
 import { loadSettings, saveSettings } from './settingsStore'
 import type { AiSettings } from './settingsStore'
 import { maskApiKey, normalizeAiBaseUrl, normalizeAiModel } from './aiConfig'
-import type { AiConfigInput, AiConfigView } from './aiTypes'
+import type { AiConfigInput, AiConfigView, AiCredentials } from './aiTypes'
 
 /** 与 Electron safeStorage 同形的加解密接缝（测试注入假实现） */
 export interface KeyCipher {
@@ -17,11 +17,7 @@ export interface KeyCipher {
 }
 
 /** 主进程内部使用的明文 AI 配置（仅用于发起请求，绝不跨 IPC） */
-export interface AiSecretConfig {
-  baseUrl: string
-  model: string
-  apiKey: string
-}
+export type AiSecretConfig = AiCredentials
 
 /** 解密已保存的 key：未保存、safeStorage 不可用或密文损坏（换机、系统凭据损坏）返回 null。 */
 function decryptStoredKey(ai: AiSettings, cipher: KeyCipher): string | null {
@@ -80,6 +76,17 @@ export function confirmFirstSendNotice(settingsDir: string): void {
     ...settings,
     ai: { ...settings.ai, firstSendNoticeConfirmed: true }
   })
+}
+
+/** 测试连接选用的 key：本次输入优先，空输入回退已保存的；都没有返回 null。 */
+export function resolveApiKey(
+  settingsDir: string,
+  typedKey: string | null,
+  cipher: KeyCipher
+): string | null {
+  const typed = typedKey === null ? '' : typedKey.trim()
+  if (typed !== '') return typed
+  return readAiSecretConfig(settingsDir, cipher)?.apiKey ?? null
 }
 
 /** 主进程内解析可用的明文配置；未配置、safeStorage 不可用或解密失败返回 null。 */

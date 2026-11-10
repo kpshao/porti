@@ -191,6 +191,53 @@ describe('aiProvider — 错误分类', () => {
     )
     expect(error.kind).toBe('protocol')
   })
+
+  it('HTTP 200 后的流内 error 归类为 server：固定中文文案，已收到的增量保留', async () => {
+    const deltas: string[] = []
+    const error = await collectError(
+      streamChatCompletion(
+        BASE,
+        fakeHttp(
+          response(
+            200,
+            'data: {"choices":[{"delta":{"content":"部分"}}]}\n\n',
+            'data: {"error":{"message":"overloaded"}}\n\n',
+            DONE
+          ),
+          []
+        ),
+        (d) => deltas.push(d)
+      )
+    )
+    expect(error.kind).toBe('server')
+    expect(error.message).toBe('AI 端点返回错误，回答未完成，请重试')
+    expect(error.message).not.toContain('overloaded')
+    expect(deltas).toEqual(['部分'])
+  })
+
+  it('流读到一半的网络异常归类为 network：固定文案不含 key，已收到的增量保留', async () => {
+    const deltas: string[] = []
+    const error = await collectError(
+      streamChatCompletion(
+        BASE,
+        fakeHttp(
+          {
+            status: 200,
+            body: (async function* () {
+              yield 'data: {"choices":[{"delta":{"content":"部分"}}]}\n\n'
+              throw new Error('ECONNRESET sk-secret-1234567890')
+            })()
+          },
+          []
+        ),
+        (d) => deltas.push(d)
+      )
+    )
+    expect(error.kind).toBe('network')
+    expect(error.message).toBe('无法连接 AI 端点，请检查网络或 API 地址')
+    expect(error.message).not.toContain('sk-secret-1234567890')
+    expect(deltas).toEqual(['部分'])
+  })
 })
 
 describe('aiProvider — 测试连接', () => {

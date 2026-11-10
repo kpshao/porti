@@ -1,4 +1,4 @@
-// 单线程 AI 对话服务（主进程）：消息落库、流式事件、停止/重试、200 条上限、20 条上下文与单请求互斥。
+// 单线程 AI 对话服务（主进程）：消息落库、流式事件、停止/重试、200 条上限、20 条历史消息与单请求互斥。
 // 依赖以接缝注入（数据库、明文配置、快照、provider 流、事件、时钟），单测用内存库与假流。
 // 密钥只在请求对象里传给 provider，不进入消息、事件与快照；联网边界见 ADR-0003。
 
@@ -8,13 +8,13 @@ import type { AiChatEvent, AiChatMessage, AiChatStatus, AiTokenUsage } from './a
 import { AiProviderError } from './aiProvider'
 import type { ChatMessage, StreamChatRequest, StreamChatResult } from './aiProvider'
 
-/** 请求上下文只带最近 20 条历史消息（不含当前用户消息），见 spec #16「AI 请求与对话」 */
+/** 请求只带最近 20 条历史消息（不含当前用户消息），见 spec #16「AI 请求与对话」 */
 export const CHAT_HISTORY_LIMIT = 20
 
 /** 单线程对话永久保留，但超过 200 条时删除最旧消息 */
 export const CHAT_STORE_LIMIT = 200
 
-/** 固定 system prompt：角色与四条约束（引用指标、标注不确定性、注明非投资建议、数据缺失明说）。 */
+/** 固定 system prompt（每次请求的第一条 system 消息，约束正文即契约）。 */
 export const AI_CHAT_SYSTEM_PROMPT = `你在 Porti 的「AI 对话」中帮助用户理解其当前的基金组合。回答必须遵守以下四条约束：
 
 1. 引用指标：任何结论都要引用分析快照中的指标名与数值（例如 HHI、有效持仓数、前三大占比、最大单只占比、市值权重、持仓盈亏、大类目标与偏离等），不要只给结论。
@@ -193,9 +193,7 @@ export function createAiChatService(deps: AiChatServiceDeps): AiChatService {
     const run: ActiveRun = { controller: new AbortController(), received: '' }
     active = run
     const request: StreamChatRequest = {
-      baseUrl: config.baseUrl,
-      model: config.model,
-      apiKey: config.apiKey,
+      ...config,
       messages,
       signal: run.controller.signal
     }
