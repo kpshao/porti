@@ -1,7 +1,24 @@
 // SQLite 数据模型。独立成模块以便测试用 :memory: 数据库复用同一 schema。
 
 /** 当前 schema 版本（PRAGMA user_version）；版本间迁移见 schemaMigration.ts */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
+
+/**
+ * v3 新增：单线程 AI 对话消息表（纯新增，不改旧表）。
+ * token 三列由供应商返回时写入，否则为 NULL；interrupted = 1 表示停止或出错时保留的部分回答。
+ */
+export const AI_MESSAGES_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS ai_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  role TEXT NOT NULL CHECK (role IN ('user','assistant')),
+  content TEXT NOT NULL,
+  prompt_tokens INTEGER,          -- 输入 token（供应商返回时）
+  completion_tokens INTEGER,      -- 输出 token（供应商返回时）
+  total_tokens INTEGER,           -- 总 token（供应商返回时）
+  interrupted INTEGER NOT NULL DEFAULT 0, -- 1 = 已中断（保留部分内容）
+  created_at TEXT NOT NULL
+);
+`
 
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS funds (
@@ -38,4 +55,5 @@ CREATE TABLE IF NOT EXISTS nav_history (
   source TEXT NOT NULL CHECK (source IN ('import','auto','manual')),
   PRIMARY KEY (fund_code, date)
 );
+${AI_MESSAGES_TABLE_SQL}
 `

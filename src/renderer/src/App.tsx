@@ -7,14 +7,23 @@ import Stats from './pages/Stats'
 import Analysis from './pages/Analysis'
 import Settings from './pages/Settings'
 
-const PAGES = [
+/** 页面可通过 onNavigate 跳转到其他页（分析页未配置 AI 时引导去设置页） */
+interface PageProps {
+  onNavigate?: (key: string) => void
+}
+
+const PAGES: ReadonlyArray<{
+  key: string
+  label: string
+  component: React.ComponentType<PageProps>
+}> = [
   { key: 'overview', label: '概览', component: Overview },
   { key: 'transactions', label: '交易流水', component: Transactions },
   { key: 'nav', label: '净值管理', component: NavHistory },
   { key: 'stats', label: '收益统计', component: Stats },
   { key: 'analysis', label: '分析', component: Analysis },
   { key: 'settings', label: '设置', component: Settings }
-] as const
+]
 
 export default function App(): React.JSX.Element {
   const [active, setActive] = useState<string>('overview')
@@ -37,7 +46,7 @@ export default function App(): React.JSX.Element {
         </nav>
       </aside>
       <main className="content">
-        <ActivePage />
+        <ActivePage onNavigate={setActive} />
       </main>
       <FirstRunDialog />
     </div>

@@ -1,9 +1,11 @@
-// AI 配置与快照 IPC（主进程侧）：读取/保存配置、测试连接、首次发送说明确认、快照预览。
-// 对话的流式 IPC 由后续工单实现；本模块不发起除「测试连接」外的任何网络请求。
-// 密钥与联网边界见 ADR-0003；配置视图的构造在 aiConfigStore。
+// AI 配置、快照与对话 IPC（主进程侧）：读取/保存配置、测试连接、首次发送说明确认、快照预览、
+// 对话的开始/停止/重试/读取/清空与流式事件、回答内链接外开。
+// 除「测试连接」与用户显式发送的对话请求外，本模块不发起任何网络请求。
+// 密钥与联网边界见 ADR-0003；配置视图的构造在 aiConfigStore，对话状态机在 aiChatService。
 
-import { app, ipcMain, safeStorage } from 'electron'
+import { app, BrowserWindow, ipcMain, safeStorage, shell } from 'electron'
 import { normalizeAiBaseUrl, normalizeAiModel } from './aiConfig'
+import { isSafeHttpUrl } from '../shared/url'
 import {
   confirmFirstSendNotice,
   loadAiConfigView,
@@ -11,12 +13,22 @@ import {
   saveAiConfig
 } from './aiConfigStore'
 import type { KeyCipher } from './aiConfigStore'
-import { defaultAiHttpPost, testAiConnection } from './aiProvider'
+import { createAiChatService } from './aiChatService'
+import { defaultAiHttpPost, streamChatCompletion, testAiConnection } from './aiProvider'
 import { buildAnalysisSnapshot, serializeSnapshot } from './analysisSnapshot'
 import { todayString } from './date'
 import { getDb } from './db'
 import { hasAnyData, selectCategoryTargets, selectFunds, selectNavPoints, selectTransactions } from './repo'
-import type { AiConfigInput, AiConfigView, AiConnectionTestResult, SnapshotPreview } from './aiTypes'
+import type {
+  AiChatEvent,
+  AiChatMessage,
+  AiChatStatus,
+  AiConfigInput,
+  AiConfigView,
+  AiConnectionTestResult,
+  OpenExternalResult,
+  SnapshotPreview
+} from './aiTypes'
 
 /** Electron safeStorage 适配器（生产环境唯一持有明文 key 的地方） */
 const electronCipher: KeyCipher = {
@@ -33,7 +45,37 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : '操作失败，请重试'
 }
 
+/** 当前数据的分析快照预览（发送前预览与对话请求共用；每次调用重建，不落库） */
+function currentSnapshotPreview(): SnapshotPreview {
+  const db = getDb()
+  const data = hasAnyData(db)
+    ? {
+        funds: selectFunds(db),
+        transactions: selectTransactions(db),
+        navPoints: selectNavPoints(db),
+        categoryTargets: selectCategoryTargets(db)
+      }
+    : { funds: [], transactions: [], navPoints: [], categoryTargets: [] }
+  return serializeSnapshot(buildAnalysisSnapshot({ ...data, today: todayString() }))
+}
+
+/** 流式事件广播到所有窗口（单窗口应用；销毁中的窗口跳过） */
+function broadcastChatEvent(event: AiChatEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('ai:chat:event', event)
+  }
+}
+
 export function registerAiIpc(): void {
+  const chatService = createAiChatService({
+    getDb,
+    readConfig: () => readAiSecretConfig(settingsDir(), electronCipher),
+    buildSnapshotJson: () => currentSnapshotPreview().json,
+    streamer: (request, onDelta) =>
+      streamChatCompletion(request, defaultAiHttpPost, onDelta),
+    emit: broadcastChatEvent
+  })
+
   // 读取 AI 配置（不含明文 key）
   ipcMain.handle('ai:config:get', (): AiConfigView => loadAiConfigView(settingsDir(), electronCipher))
 
@@ -68,16 +110,26 @@ export function registerAiIpc(): void {
   })
 
   // 生成分析快照预览（每次请求重建；只读、不落库、不联网）
-  ipcMain.handle('ai:snapshot-preview', (): SnapshotPreview => {
-    const db = getDb()
-    const data = hasAnyData(db)
-      ? {
-          funds: selectFunds(db),
-          transactions: selectTransactions(db),
-          navPoints: selectNavPoints(db),
-          categoryTargets: selectCategoryTargets(db)
-        }
-      : { funds: [], transactions: [], navPoints: [], categoryTargets: [] }
-    return serializeSnapshot(buildAnalysisSnapshot({ ...data, today: todayString() }))
+  ipcMain.handle('ai:snapshot-preview', (): SnapshotPreview => currentSnapshotPreview())
+
+  // ---- 对话：主进程持有状态并直接读写数据库，渲染进程只收发文本与增量 ----
+  ipcMain.handle('ai:chat:history', (): AiChatMessage[] => chatService.history())
+  ipcMain.handle('ai:chat:status', (): AiChatStatus => chatService.status())
+  ipcMain.handle('ai:chat:send', (_event, content: string): AiChatMessage => chatService.send(content))
+  ipcMain.handle('ai:chat:retry', (): AiChatMessage => chatService.retry())
+  ipcMain.handle('ai:chat:stop', (): void => chatService.stop())
+  ipcMain.handle('ai:chat:clear', (): void => chatService.clear())
+
+  // 回答中的链接：主进程二次校验协议后交给系统浏览器，不在应用内导航
+  ipcMain.handle('ai:open-external', async (_event, url: string): Promise<OpenExternalResult> => {
+    if (typeof url !== 'string' || !isSafeHttpUrl(url)) {
+      return { ok: false, message: '仅支持打开 http/https 链接' }
+    }
+    try {
+      await shell.openExternal(url)
+      return { ok: true }
+    } catch {
+      return { ok: false, message: '无法打开链接，请检查系统默认浏览器设置' }
+    }
   })
 }

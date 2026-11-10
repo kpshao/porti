@@ -3,6 +3,7 @@
 
 import { existsSync } from 'fs'
 import type Database from 'better-sqlite3'
+import { AI_MESSAGES_TABLE_SQL } from './schema'
 
 /** 迁移前的一次性副本：VACUUM INTO 生成一致性快照（含未落盘 WAL 内容） */
 function backupBeforeMigration(database: Database.Database): void {
@@ -27,5 +28,9 @@ export function migrateDatabase(database: Database.Database, from: number): void
       backupBeforeMigration(database)
       database.exec('ALTER TABLE funds DROP COLUMN target_amount')
     }
+  }
+  if (from < 3) {
+    // 2 → 3：新增单线程 AI 对话表，纯新增、不改旧表，无需备份
+    database.exec(AI_MESSAGES_TABLE_SQL)
   }
 }

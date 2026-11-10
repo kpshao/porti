@@ -69,7 +69,7 @@ if (hasRealData) {
   console.log('提示：未找到真实数据库，断言将 SKIP')
 }
 
-// 升级验证：副本启动前若是 v1，启动后应自动删列、升到版本 2 并留备份
+// 升级验证：副本启动前若是 v1，启动后应自动删列、升到当前版本并留备份
 const sourceVersion = existsSync(dbPath)
   ? Number(spawnSync('sqlite3', [dbPath, 'PRAGMA user_version']).stdout.toString().trim())
   : null
@@ -436,7 +436,7 @@ if (sourceVersion === 1) {
     .split('\n')
     .map((line) => line.split('|')[1])
     .filter(Boolean)
-  check(version === 2, '真实库副本启动后数据版本升到 2', `实际 ${version}`)
+  check(version === 3, '真实库副本启动后数据版本升到 3', `实际 ${version}`)
   check(!columns.includes('target_amount'), '真实库副本启动后 target_amount 列已删除', columns.join('/'))
   const backups = readdirSync(profileDir).filter((f) => f.startsWith('porti.db.bak-'))
   check(backups.length > 0, '删列前生成了 .bak 备份', backups.join(', '))

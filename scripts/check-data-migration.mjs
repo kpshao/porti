@@ -237,13 +237,13 @@ async function shotWithState(session, label, file) {
   await shotWithState(s, 'A 场景', 'porti-migration-check-a.png')
   await s.kill()
 
-  // 升级后首次启动：v1 库应自动删列、升到版本 2，并在删列前留一份备份
+  // 升级后首次启动：v1 库应自动删列、升到当前版本，并在删列前留一份备份
   const migrated = new Database(join(profileA, 'porti.db'), { readonly: true })
   const columns = migrated.prepare('PRAGMA table_info(funds)').all().map((c) => c.name)
   const version = migrated.pragma('user_version', { simple: true })
   migrated.close()
   if (columns.includes('target_amount')) problems.push('A: 启动后 target_amount 列仍在')
-  if (version !== 2) problems.push(`A: 启动后数据版本应为 2，实际 ${version}`)
+  if (version !== 3) problems.push(`A: 启动后数据版本应为 3，实际 ${version}`)
   if (!readdirSync(profileA).some((f) => f.startsWith('porti.db.bak-'))) {
     problems.push('A: 删列前未生成 .bak 备份')
   }

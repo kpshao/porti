@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-// 分析页集中度指标端到端检查（零依赖：Node >= 22 全局 WebSocket/fetch + 系统 sqlite3）
+// 分析页端到端检查（零依赖：Node >= 22 全局 WebSocket/fetch + 系统 sqlite3）
 //
 // 用法：node scripts/check-analysis.mjs [--port 9337]
 //
 // 流程：npm run build -> 复制真实 porti.db 到临时 profile -> 启动 Electron ->
-//       等启动自动抓取净值结束 -> 库内独立重算 -> 刷新页面 -> CDP 点侧边栏进入「分析」-> 断言。
+//       等启动自动抓取净值结束 -> 库内独立重算 -> 刷新页面 -> CDP 点侧边栏进入「分析」-> 断言指标。
+//       指标断言通过后，启动本地 fake OpenAI 兼容服务端，经设置页填写配置，
+//       断言 AI 对话的完整链路（首次说明、快照预览、流式渲染、token、停止、错误与重试、清空）。
 //
-// 断言（口径见 spec #16「页面与指标」与工单 #17）：
+// 指标断言（口径见 spec #16「页面与指标」与工单 #17）：
 //   1. 侧边栏存在「分析」导航项，且位于「收益统计」与「设置」之间；
 //   2. 指标卡片四项齐全：前三大占比、最大单只占比、HHI、有效持仓数；
 //   3. 四项指标 = 库内独立重算（按显示精度留容差：占比 2 位 / HHI 3 位 / 有效持仓数 1 位）；
@@ -14,16 +16,30 @@
 //   5. 有缺净值的在持基金时，页面提示其数量；无缺净值时不显示提示；
 //   6. 没有任何可估值在持基金时显示空状态；控制台无异常。
 //
-// 独立事实来源：系统 sqlite3 直读库副本，脚本内按 spec 公式独立重算，不复用 src/engine。
-// 隐私：公开仓库，脚本只打印计数与一致性，绝不回显真实金额、份额或基金名。
+// AI 对话断言（工单 #19）：
+//   7. 未配置时对话禁用并显示「前往设置」引导，点击可跳转设置页；
+//   8. 设置页保存配置后（fake key，无需真实 key）可发送；首次发送说明提到发往的 host；
+//   9. 发送前可查看快照预览，含 dataFreshness / concentration，且不含 key；
+//  10. 流式渲染 Markdown（标题、表格、链接），原始 HTML 只显示为文本、不产生 img；
+//  11. 请求体含 <snapshot> 与关键字段、不含 key；Authorization 头带 key；
+//      temperature=0.3、max_tokens=4096、stream=true；
+//  12. token 用量显示；刷新后历史保留；
+//  13. 停止后保留部分内容并标记已中断，且关闭与端点的连接；
+//  14. 401 以中文错误 banner 呈现并提供重试；恢复后重试成功；
+//  15. 清空对话后界面与数据库均无消息；settings.json 不含明文 key。
 //
-// 退出码：0 = 通过（含 SKIP：无真实库或无在持持仓）；1 = RED。
+// 独立事实来源：系统 sqlite3 直读库副本，脚本内按 spec 公式独立重算，不复用 src/engine。
+// 隐私：公开仓库，脚本只打印计数与一致性，绝不回显真实金额、份额或基金名；
+//       fake key 只用于本地服务端断言，不会写进任何输出。
+//
+// 退出码：0 = 通过（含 SKIP：无真实库、无在持持仓或 safeStorage 不可用）；1 = RED。
 //
 // 已知陷阱：本机 shell 可能导出 ELECTRON_RUN_AS_NODE=1，spawn 前必须 delete，
 // 否则 Electron 退化为纯 Node（--remote-debugging-port 失效、页面永远起不来）；
 // 窗口遮挡会节流 rAF，启动参数带三个 --disable-* 旗标。
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -35,6 +51,91 @@ const ELECTRON_BIN =
   process.platform === 'darwin'
     ? join(ROOT, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
     : join(ROOT, 'node_modules/electron/dist/electron')
+
+// ---- 本地 fake OpenAI 兼容服务端（零依赖；验证完整链路，无需真实 key）----
+const FAKE_KEY = 'sk-check-fake-key-0000'
+const FAKE_MODEL = 'check-model'
+/** 流式/挂起/报错三种模式，由脚本按步骤切换 */
+let providerMode = 'ok'
+const providerRequests = []
+let providerAbortedHangs = 0
+
+function startFakeProvider() {
+  const server = createServer((req, res) => {
+    if (req.method !== 'POST') {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end('{}')
+      return
+    }
+    let raw = ''
+    req.on('data', (chunk) => {
+      raw += chunk
+    })
+    req.on('end', () => {
+      const mode = providerMode
+      let body = null
+      try {
+        body = JSON.parse(raw)
+      } catch {}
+      providerRequests.push({ url: req.url ?? '', auth: req.headers.authorization ?? '', raw, body, mode })
+
+      if (mode === 'error') {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: { message: 'invalid api key' } }))
+        return
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive'
+      })
+      const chunks =
+        mode === 'hang'
+          ? ['正在生成', '……']
+          : [
+              '## 判断\n',
+              '你的组合**集中度偏高**，HHI 约为 0.42。\n',
+              '- 前三大占比 88.00%\n',
+              '- 有效持仓数 2.4\n',
+              '\n| 指标 | 数值 |\n| --- | --- |\n| HHI | 0.42 |\n',
+              '\n[示例链接](https://example.com/report)\n',
+              '\n<img src="https://evil.test/track.png">\n'
+            ]
+      let index = 0
+      let finished = false
+      const writeNext = () => {
+        if (finished) return
+        if (index >= chunks.length) {
+          if (mode === 'hang') return // 保持连接，等待客户端停止
+          res.write(
+            `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 120, completion_tokens: 8, total_tokens: 128 } })}\n\n`
+          )
+          res.write('data: [DONE]\n\n')
+          finished = true
+          res.end()
+          return
+        }
+        res.write(
+          `data: ${JSON.stringify({ choices: [{ delta: { content: chunks[index] } }] })}\n\n`
+        )
+        index += 1
+        setTimeout(writeNext, 60)
+      }
+      writeNext()
+      res.on('finish', () => {
+        finished = true
+      })
+      res.on('close', () => {
+        if (!finished && mode === 'hang') providerAbortedHangs += 1
+      })
+    })
+  })
+  return new Promise((resolvePort, reject) => {
+    server.on('error', reject)
+    server.listen(0, '127.0.0.1', () => resolvePort({ server, port: server.address().port }))
+  })
+}
 
 const failures = []
 function check(ok, label, detail = '') {
@@ -84,7 +185,11 @@ for (const name of ['porti.db', 'porti.db-wal', 'porti.db-shm']) {
   if (existsSync(src)) cpSync(src, join(profileDir, name))
 }
 
-// ---- 3. 启动 Electron（剔除 ELECTRON_RUN_AS_NODE，防退化为纯 Node）-------
+// ---- 3. 本地 fake provider + 启动 Electron（剔除 ELECTRON_RUN_AS_NODE，防退化为纯 Node）-------
+const { server: fakeProvider, port: fakePort } = await startFakeProvider()
+const fakeBaseUrl = `http://127.0.0.1:${fakePort}/v1`
+console.log(`fake OpenAI 兼容服务端：${fakeBaseUrl}`)
+
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 const electron = spawn(
@@ -103,7 +208,7 @@ const electron = spawn(
 const waitFor = async (fn, ms, step = 250) => {
   const deadline = Date.now() + ms
   while (Date.now() < deadline) {
-    const v = await fn().catch(() => null)
+    const v = await Promise.resolve().then(() => fn()).catch(() => null)
     if (v) return v
     await new Promise((r) => setTimeout(r, step))
   }
@@ -188,11 +293,13 @@ const fetchSettled = await waitFor(async () => {
 }, 30000, 500)
 if (fetchSettled === null) console.log('提示：启动自动抓取净值未在 30s 内结束，按当前库继续')
 
-/** sqlite3 直读（重试以避开应用写库瞬间的锁） */
+/** sqlite3 直读（重试以避开应用写库瞬间的锁）。
+ *  用 -cmd '.timeout' 设置锁等待，而不是 PRAGMA busy_timeout——后者会回显 5000，
+ *  污染按行解析的结果。 */
 function sqliteRows(sql) {
   let lastErr = ''
   for (let attempt = 0; attempt < 5; attempt++) {
-    const q = spawnSync('sqlite3', [dbPath, `PRAGMA busy_timeout=5000;\n${sql}`])
+    const q = spawnSync('sqlite3', ['-cmd', '.timeout 5000', dbPath, sql])
     if (q.status === 0) {
       return q.stdout.toString().split('\n').filter((line) => line !== '')
     }
@@ -213,8 +320,10 @@ try {
     sharesByFund.set(fundCode, (sharesByFund.get(fundCode) ?? 0) + value)
   }
   const latestNav = new Map()
+  let latestNavDate = null
   for (const line of sqliteRows('SELECT fund_code, date, nav FROM nav_history')) {
     const [fundCode, date, nav] = line.split('|')
+    if (latestNavDate === null || date > latestNavDate) latestNavDate = date
     const cur = latestNav.get(fundCode)
     if (cur === undefined || date > cur.date) latestNav.set(fundCode, { date, nav: Number(nav) })
   }
@@ -239,6 +348,7 @@ try {
     // 可估值只数语义：即使市值合计异常为 0（weights 为空）仍计入
     valuedCount: valued.length,
     missingNavCount,
+    latestNavDate,
     maxWeight: weights.length > 0 ? weights[0].weight : null,
     top3Weight:
       weights.length > 0 ? weights.slice(0, 3).reduce((s, w) => s + w.weight, 0) : null,
@@ -401,26 +511,388 @@ if (expected.valuedCount === 0) {
   }
 }
 
-// ---- 6. 控制台 ------------------------------------------------------------
-check(exceptions.length === 0, '控制台无渲染异常', `异常 ${exceptions.length} 条`)
-check(consoleErrors.length === 0, '控制台无 error 级日志', `error ${consoleErrors.length} 条`)
+// 数据新鲜度：界面展示的最新净值日期 = 库内重算（spec #16「数据新鲜度」）
+const freshness = await waitFor(
+  () => evalJs(`document.querySelector('.analysis-freshness')?.textContent?.trim() ?? null`),
+  5000
+)
+check(
+  freshness !== null &&
+    (expected.latestNavDate === null
+      ? freshness.includes('—')
+      : freshness.includes(expected.latestNavDate)),
+  '界面展示最新净值日期（数据新鲜度）',
+  freshness ?? ''
+)
 
-if (logs.length > 0) console.log(`  console 消息 ${logs.length} 条（按隐私约定不回显内容）`)
+// ---- 6. AI 对话（本地 fake provider，无需真实 key）------------------------
+console.log('\nAI 对话检查')
 
-if (failures.length > 0) {
-  console.error(`RED: ${failures.length} 项断言失败：${failures.join('；')}`)
+/** 收集最终结果：控制台断言 + 失败汇总，退出码按 failures 决定 */
+function finish(greenLabel) {
+  check(exceptions.length === 0, '控制台无渲染异常', `异常 ${exceptions.length} 条`)
+  check(consoleErrors.length === 0, '控制台无 error 级日志', `error ${consoleErrors.length} 条`)
+  if (logs.length > 0) console.log(`  console 消息 ${logs.length} 条（按隐私约定不回显内容）`)
+  if (failures.length > 0) {
+    console.error(`RED: ${failures.length} 项断言失败：${failures.join('；')}`)
+    console.log(`截图: ${shotPath}`)
+    cleanup()
+    process.exit(1)
+  }
+  console.log(greenLabel)
   console.log(`截图: ${shotPath}`)
   cleanup()
-  process.exit(1)
+  process.exit(0)
 }
-console.log('GREEN: 分析页集中度指标全部断言通过')
-console.log(`截图: ${shotPath}`)
-cleanup()
-process.exit(0)
+
+const clickNav = (label) =>
+  evalJs(`(() => {
+    const btn = [...document.querySelectorAll('.nav-item')].find((b) => b.textContent.trim() === ${JSON.stringify(label)})
+    if (!btn) return false
+    btn.click()
+    return true
+  })()`)
+
+const waitForChatCard = () =>
+  waitFor(() => evalJs(`document.querySelector('.chat-card') !== null`), 10000)
+
+const fillInput = (selector, value) =>
+  evalJs(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)})
+    if (!el) return false
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(value)})
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+
+const fillChat = (text) => fillInput('.chat-input', text)
+
+const waitSendEnabled = () =>
+  waitFor(
+    () =>
+      evalJs(
+        `(() => { const b = document.querySelector('.chat-send'); return b !== null && !b.disabled })()`
+      ),
+    3000
+  )
+
+const fillAiField = (labelPrefix, value) =>
+  evalJs(`(() => {
+    const field = [...document.querySelectorAll('.form-field')].find((f) =>
+      f.querySelector('span')?.textContent.trim().startsWith(${JSON.stringify(labelPrefix)})
+    )
+    const input = field?.querySelector('input, textarea')
+    if (!input) return false
+    const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(input, ${JSON.stringify(value)})
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+
+// 先从临时库清空旧 AI 消息并重载，保证断言起点确定（不影响真实库）
+await evalAsync('window.api.aiChatClear()')
+await send('Page.reload', { ignoreCache: true })
+await waitFor(() => evalJs(`document.querySelectorAll('.nav-item').length > 0`), 20000)
+await clickNav('分析')
+await waitForChatCard()
+
+// 6.1 未配置：禁用并引导去设置页
+const hint = await waitFor(
+  () =>
+    evalJs(`(() => {
+      const el = document.querySelector('.chat-config-hint')
+      if (!el) return null
+      return {
+        text: el.textContent.trim(),
+        settingsBtn: el.querySelector('.chat-settings-link') !== null,
+        inputDisabled: document.querySelector('.chat-input')?.disabled ?? null
+      }
+    })()`),
+  5000
+)
+check(hint !== null, '未配置 AI 时对话区显示引导')
+check(hint?.settingsBtn === true, '引导中有「前往设置」按钮')
+check(hint?.inputDisabled === true, '未配置时输入框禁用')
+
+if (hint !== null) {
+  await evalJs(`document.querySelector('.chat-settings-link').click()`)
+  const onSettings = await waitFor(
+    () => evalJs(`document.querySelector('.page h1')?.textContent.trim() === '设置'`),
+    5000
+  )
+  check(onSettings === true, '点击引导可跳转到设置页')
+}
+
+// 6.2 环境能力：safeStorage 不可用则无法保存 fake key，按 SKIP 处理（不静默通过）
+const configView = await evalAsync('window.api.aiConfigGet()')
+if (!configView?.safeStorageAvailable) {
+  console.log('SKIP: 当前环境 safeStorage 不可用，无法保存 fake key，跳过 AI 对话断言。')
+  finish('SKIP: 仅完成集中度指标断言')
+}
+
+// 6.3 设置页填写 fake 端点与 key 并保存
+await waitFor(
+  () =>
+    evalJs(`[...document.querySelectorAll('.card h2')].some((h) => h.textContent.trim() === 'AI 分析')`),
+  5000
+)
+check(await fillAiField('API 地址', fakeBaseUrl), '设置页填写 fake API 地址')
+check(await fillAiField('模型名', FAKE_MODEL), '设置页填写模型名')
+check(await fillAiField('API key', FAKE_KEY), '设置页填写 fake API key')
+await evalJs(`(() => {
+  const btn = [...document.querySelectorAll('.btn')].find((b) => b.textContent.trim() === '保存 AI 配置')
+  if (!btn) return false
+  btn.click()
+  return true
+})()`)
+const saveResult = await waitFor(
+  () =>
+    evalJs(`(() => {
+      const card = [...document.querySelectorAll('.card')].find((c) => c.querySelector('h2')?.textContent.trim() === 'AI 分析')
+      if (!card) return null
+      const error = card.querySelector('.banner-error')?.textContent.trim() ?? null
+      const success = card.querySelector('.banner-success')?.textContent.trim() ?? null
+      return error !== null || success !== null ? { error, success } : null
+    })()`),
+  10000
+)
+const saveOk = saveResult !== null && saveResult.success !== null
+check(saveOk, 'AI 配置保存成功', saveOk ? '' : (saveResult?.error ?? '无响应'))
+if (!saveOk) {
+  finish('RED: AI 配置保存失败，后续对话断言无法继续')
+}
+
+// 6.4 回到分析页：输入可用、快照预览
+await clickNav('分析')
+await waitForChatCard()
+const configured = await waitFor(
+  () =>
+    evalJs(`(() => {
+      const input = document.querySelector('.chat-input')
+      return input !== null && !input.disabled && document.querySelector('.chat-config-hint') === null
+    })()`),
+  5000
+)
+check(configured === true, '配置完成后对话输入可用')
+
+await evalJs(`document.querySelector('.chat-preview-btn').click()`)
+const preview = await waitFor(
+  () =>
+    evalJs(`(() => {
+      const el = document.querySelector('.snapshot-preview')
+      if (!el) return null
+      const text = el.textContent
+      return {
+        hasFreshness: text.includes('dataFreshness'),
+        hasConcentration: text.includes('concentration'),
+        hasKey: text.includes(${JSON.stringify(FAKE_KEY)})
+      }
+    })()`),
+  5000
+)
+check(preview?.hasFreshness === true && preview?.hasConcentration === true, '快照预览含数据新鲜度与集中度字段')
+check(preview?.hasKey === false, '快照预览不含 API key')
+await evalJs(`document.querySelector('.modal-close')?.click()`)
+await waitFor(() => evalJs(`document.querySelector('.modal-overlay') === null`), 3000)
+
+// 6.5 首次发送说明 + 流式回答
+const QUESTION = '我的持仓集中吗？'
+await fillChat(QUESTION)
+const sendEnabled = await waitSendEnabled()
+check(sendEnabled === true, '输入问题后发送按钮可用')
+await evalJs(`document.querySelector('.chat-send').click()`)
+
+const noticeText = await waitFor(
+  () => evalJs(`document.querySelector('.chat-notice')?.textContent?.trim() ?? null`),
+  3000
+)
+check(noticeText !== null, '首次发送显示说明弹窗')
+check(
+  noticeText !== null && noticeText.includes(String(fakePort)) && noticeText.includes('分析快照'),
+  '首次说明包含发往的 host 与分析快照说明'
+)
+await evalJs(`document.querySelector('.chat-notice-confirm').click()`)
+
+const sawStreaming = await waitFor(
+  () =>
+    evalJs(`(() => {
+      const el = document.querySelector('.chat-streaming')
+      return el !== null && el.textContent.includes('生成中') ? true : null
+    })()`),
+  5000
+)
+check(sawStreaming === true, '回答以流式增量渲染')
+
+const finalState = await waitFor(
+  () =>
+    evalJs(`(() => {
+      if (document.querySelector('.chat-streaming') !== null) return null
+      const messages = [...document.querySelectorAll('.chat-message-assistant')]
+      const last = messages[messages.length - 1]
+      if (!last || !last.textContent.includes('集中度偏高')) return null
+      return {
+        headings: [...last.querySelectorAll('.md-heading')].map((h) => h.textContent.trim()),
+        tables: last.querySelectorAll('.md-table').length,
+        links: [...last.querySelectorAll('.md-link')].map((a) => a.getAttribute('href')),
+        imgs: last.querySelectorAll('img').length,
+        rawHtmlText: last.textContent.includes('<img'),
+        usage: last.querySelector('.chat-usage')?.textContent?.trim() ?? null,
+        error: document.querySelector('.chat-error')?.textContent?.trim() ?? null
+      }
+    })()`),
+  15000
+)
+check(finalState !== null, '流式回答完成并落入消息列表')
+if (finalState !== null) {
+  check(finalState.headings.includes('判断'), 'Markdown 标题正常渲染')
+  check(finalState.tables >= 1, 'Markdown 表格正常渲染')
+  check(finalState.links.includes('https://example.com/report'), 'Markdown 链接带 href（点击走系统浏览器）')
+  check(finalState.imgs === 0, '不渲染图片（远程图片不加载）')
+  check(finalState.rawHtmlText === true, '原始 HTML 按文本显示')
+  check(finalState.usage !== null && finalState.usage.includes('128'), '显示 token 用量')
+  check(finalState.error === null, '成功回答不显示错误 banner')
+}
+
+// 6.6 请求体契约（快照、key 边界、固定参数）
+const okRequests = providerRequests.filter((r) => r.mode === 'ok')
+const firstRequest = okRequests[0]
+check(firstRequest !== undefined, 'fake provider 收到请求')
+if (firstRequest !== undefined) {
+  check(firstRequest.auth === `Bearer ${FAKE_KEY}`, 'Authorization 头带 key')
+  check(!firstRequest.raw.includes(FAKE_KEY), '请求体不含 key')
+  const body = firstRequest.body ?? {}
+  check(body.model === FAKE_MODEL, '请求体使用配置的模型')
+  check(
+    body.temperature === 0.3 && body.max_tokens === 4096 && body.stream === true,
+    '固定 temperature / max_tokens / stream'
+  )
+  const messages = Array.isArray(body.messages) ? body.messages : []
+  check(
+    messages[0]?.role === 'system' &&
+      ['指标', '不确定性', '非投资建议', '缺失', '截止时间'].every((k) =>
+        messages[0].content.includes(k)
+      ),
+    'system prompt 含四条约束'
+  )
+  check(
+    messages[1]?.role === 'system' &&
+      messages[1].content.includes('<snapshot>') &&
+      messages[1].content.includes('dataFreshness') &&
+      messages[1].content.includes('concentration'),
+    '请求包含分析快照（dataFreshness / concentration）'
+  )
+  check(
+    messages[messages.length - 1]?.role === 'user' &&
+      messages[messages.length - 1].content === QUESTION,
+    '最后一条为当前用户消息'
+  )
+}
+
+// 6.7 密钥与 token 落库边界
+const aiContent = sqliteRows('SELECT content FROM ai_messages').join('\n')
+check(!aiContent.includes(FAKE_KEY), '数据库消息不含 API key')
+const settingsRaw = readFileSync(join(profileDir, 'settings.json'), 'utf8')
+check(!settingsRaw.includes(FAKE_KEY), 'settings.json 不含明文 API key')
+const tokenRows = sqliteRows(
+  "SELECT total_tokens FROM ai_messages WHERE role = 'assistant' AND total_tokens IS NOT NULL LIMIT 1"
+)
+check(tokenRows[0]?.trim() === '128', 'token 用量随回答落库')
+
+// 6.8 刷新后历史保留
+await send('Page.reload', { ignoreCache: true })
+await waitFor(() => evalJs(`document.querySelectorAll('.nav-item').length > 0`), 20000)
+await clickNav('分析')
+const persisted = await waitFor(
+  () =>
+    evalJs(`(() => {
+      const messages = [...document.querySelectorAll('.chat-message')]
+      return messages.length >= 2 && messages[0].textContent.includes(${JSON.stringify(QUESTION)})
+        ? true
+        : null
+    })()`),
+  10000
+)
+check(persisted === true, '刷新后对话历史保留')
+
+// 6.9 停止：保留部分内容、标记已中断、关闭连接
+providerMode = 'hang'
+await fillChat('停止测试')
+await waitSendEnabled()
+await evalJs(`document.querySelector('.chat-send').click()`)
+const sawPartial = await waitFor(
+  () =>
+    evalJs(`(() => {
+      const el = document.querySelector('.chat-streaming')
+      return el !== null && el.textContent.includes('正在生成') ? true : null
+    })()`),
+  5000
+)
+check(sawPartial === true, '停止测试：先看到部分回答')
+await evalJs(`document.querySelector('.chat-stop').click()`)
+const stopped = await waitFor(
+  () =>
+    evalJs(`(() => {
+      if (document.querySelector('.chat-streaming') !== null) return null
+      const tag = document.querySelector('.chat-interrupted')
+      if (tag === null) return null
+      const message = tag.closest('.chat-message-assistant')
+      return message !== null && message.textContent.includes('正在生成') ? true : null
+    })()`),
+  10000
+)
+check(stopped === true, '停止后保留部分内容并标记已中断')
+const aborted = await waitFor(() => (providerAbortedHangs > 0 ? true : null), 5000)
+check(aborted === true, '停止会关闭与 AI 端点的连接')
+
+// 6.10 错误 banner 与手动重试
+providerMode = 'error'
+await fillChat('错误测试')
+await waitSendEnabled()
+await evalJs(`document.querySelector('.chat-send').click()`)
+const errorBanner = await waitFor(
+  () => evalJs(`document.querySelector('.chat-error')?.textContent?.trim() ?? null`),
+  10000
+)
+check(errorBanner !== null && errorBanner.includes('API key 无效'), '401 以中文错误 banner 呈现', errorBanner ?? '')
+check(await evalJs(`document.querySelector('.chat-retry') !== null`), '错误 banner 提供重试按钮')
+
+providerMode = 'ok'
+const requestCountBeforeRetry = providerRequests.length
+await evalJs(`document.querySelector('.chat-retry').click()`)
+const retried = await waitFor(() => (providerRequests.length > requestCountBeforeRetry ? true : null), 10000)
+check(retried === true, '重试重新发起请求')
+const retryDone = await waitFor(
+  () =>
+    evalJs(`(() => {
+      if (document.querySelector('.chat-streaming') !== null) return null
+      return document.querySelector('.chat-error') === null &&
+        document.querySelectorAll('.chat-message-assistant').length >= 2
+    })()`),
+  15000
+)
+check(retryDone === true, '恢复后重试成功且错误 banner 消失')
+
+// 6.11 清空对话
+await evalJs(`document.querySelector('.chat-clear').click()`)
+const cleared = await waitFor(
+  () =>
+    evalJs(`document.querySelectorAll('.chat-message').length === 0 &&
+      document.querySelector('.chat-messages .chat-empty') !== null`),
+  5000
+)
+check(cleared === true, '清空后消息列表为空')
+const aiCount = sqliteRows('SELECT COUNT(*) FROM ai_messages')[0]?.trim()
+check(aiCount === '0', '清空后数据库无对话消息')
+
+finish('GREEN: 分析页集中度指标与 AI 对话全部断言通过')
 
 function cleanup() {
   try {
     ws?.close()
+  } catch {}
+  try {
+    fakeProvider.close()
   } catch {}
   try {
     electron.kill('SIGTERM')

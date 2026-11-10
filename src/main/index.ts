@@ -19,6 +19,9 @@ function createWindow(): void {
     }
   })
 
+  // AI 回答等不可信内容不得在应用内开新窗口（链接统一经 ai:open-external 交给系统浏览器）
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })

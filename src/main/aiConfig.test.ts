@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  buildChatCompletionsUrl,
-  maskApiKey,
-  normalizeAiBaseUrl,
-  normalizeAiModel
-} from './aiConfig'
+import { buildChatCompletionsUrl, maskApiKey, normalizeAiBaseUrl, normalizeAiModel } from './aiConfig'
 
 describe('aiConfig — base URL 校验', () => {
   it('https 地址保留路径，去掉尾部斜杠', () => {

@@ -120,8 +120,8 @@ export function validateMigrationBundle(
         reason: `迁移包由更新版本导出（数据版本 ${schemaVersion}，当前支持 ${currentSchemaVersion}），请先升级软件再导入`
       }
     }
-    // schemaVersion < currentSchemaVersion：预留升级路径——当前仅版本 1，
-    // 未来出现版本间迁移时在此处逐版本升级后再放行。
+    // schemaVersion < currentSchemaVersion：导入后由 initDatabase 的逐版本迁移升级；
+    // 此处只做合法性与完整性校验，不修改迁移包内容。
     const count = (table: string): number =>
       (bundle.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
     return {
