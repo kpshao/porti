@@ -15,6 +15,7 @@ import {
   costBasisStates,
   isClosed,
   isHeld,
+  latestNavDate,
   realizedPerSale
 } from '../engine'
 import type {
@@ -195,11 +196,6 @@ export function buildAnalysisSnapshot(input: AnalysisSnapshotInput): AnalysisSna
       realized: t.type === '卖出' ? (realizedPerTransaction.get(t.id) ?? null) : null
     }))
 
-  let latestNavDate: string | null = null
-  for (const point of navPoints) {
-    if (latestNavDate === null || point.date > latestNavDate) latestNavDate = point.date
-  }
-
   const categoryComparison: SnapshotCategoryRow[] = computeCategoryComparison(
     positions,
     categoryTargets
@@ -211,7 +207,7 @@ export function buildAnalysisSnapshot(input: AnalysisSnapshotInput): AnalysisSna
   }))
 
   return {
-    dataFreshness: { today, latestNavDate },
+    dataFreshness: { today, latestNavDate: latestNavDate(navPoints) },
     summary: {
       all: computeScopedSummary('all', positions, transactions, navPoints, today),
       held: computeScopedSummary('held', positions, transactions, navPoints, today)

@@ -16,7 +16,8 @@ import {
   costBasisStates,
   filterFundSeriesRange,
   groupClosedPositions,
-  groupPositionsByCategory
+  groupPositionsByCategory,
+  latestNavDate
 } from '../engine'
 import type {
   FundInput,
@@ -184,11 +185,7 @@ export function registerDataIpc(): void {
     const transactions = selectTransactions(db)
     const navPoints = selectNavPoints(db)
     const positions = computePositions(funds, transactions, navPoints)
-    let latestNavDate: string | null = null
-    for (const point of navPoints) {
-      if (latestNavDate === null || point.date > latestNavDate) latestNavDate = point.date
-    }
-    return { metrics: computeConcentrationMetrics(positions), latestNavDate }
+    return { metrics: computeConcentrationMetrics(positions), latestNavDate: latestNavDate(navPoints) }
   })
 
   // ---------- 基金详情：指标行 + 单基金收益走势 ----------

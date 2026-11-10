@@ -84,6 +84,7 @@ export interface ConcentrationMetrics {
   effectiveHoldings: number | null // HHI 为 0 时为 null
   valuedCount: number // 可估值在持基金数
   missingNavCount: number // 缺最新净值的在持基金数
+  heldCount: number // 在持基金数 = 可估值 + 缺净值
 }
 
 /** 概览持仓明细的大类分组：组头 + 组内明细 */

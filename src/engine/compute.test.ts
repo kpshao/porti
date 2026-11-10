@@ -30,6 +30,7 @@ import {
   CLOSED_CATEGORY,
   computeScopedSummary,
   computeConcentrationMetrics,
+  latestNavDate,
   xirr
 } from './compute'
 
@@ -62,6 +63,20 @@ function mkPosition(
 function groupHeldPositions(positions: FundPosition[]): PositionGroup[] {
   return groupPositionsByCategory(positions, [], '2026-01-01')
 }
+
+describe('数据新鲜度日期（latestNavDate）', () => {
+  const nav = (date: string): NavPoint => ({ fundCode: '000001', date, nav: 1, source: 'manual' })
+
+  it('空集返回 null（没有净值记录即没有数据新鲜度日期）', () => {
+    expect(latestNavDate([])).toBeNull()
+  })
+
+  it('乱序三点取最大日期', () => {
+    expect(latestNavDate([nav('2024-03-01'), nav('2024-01-15'), nav('2024-12-31')])).toBe(
+      '2024-12-31'
+    )
+  })
+})
 
 // ---------- Golden fixtures：取自 投资跟踪.xlsx 持仓概览的真实数据 ----------
 
@@ -1809,6 +1824,7 @@ describe('集中度指标（computeConcentrationMetrics，手算黄金值）', (
     const m = computeConcentrationMetrics([pos('A', 300), pos('B', null), pos('C', 100)])
     expect(m.valuedCount).toBe(2)
     expect(m.missingNavCount).toBe(1)
+    expect(m.heldCount).toBe(3) // 可估值 + 缺净值
     expect(m.weights).toEqual([
       { fundCode: 'A', weight: 0.75 },
       { fundCode: 'C', weight: 0.25 }
@@ -1827,6 +1843,7 @@ describe('集中度指标（computeConcentrationMetrics，手算黄金值）', (
     ])
     expect(m.valuedCount).toBe(1)
     expect(m.missingNavCount).toBe(0)
+    expect(m.heldCount).toBe(1) // 已清仓不计入在持
     expect(m.weights).toEqual([{ fundCode: 'A', weight: 1 }])
     expect(m.hhi).toBe(1)
     expect(m.maxWeight).toBe(1)

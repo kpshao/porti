@@ -4,7 +4,7 @@
 export const SCHEMA_VERSION = 3
 
 /**
- * v3 新增：单线程 AI 对话消息表（纯新增，不改旧表）。
+ * v3 新增：单线程 AI 对话消息表。
  * token 三列由供应商返回时写入，否则为 NULL；interrupted = 1 表示停止或出错时保留的部分回答。
  */
 export const AI_MESSAGES_TABLE_SQL = `

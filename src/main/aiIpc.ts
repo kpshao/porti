@@ -10,6 +10,7 @@ import {
   confirmFirstSendNotice,
   loadAiConfigView,
   readAiSecretConfig,
+  resolveApiKey,
   saveAiConfig
 } from './aiConfigStore'
 import type { KeyCipher } from './aiConfigStore'
@@ -96,9 +97,7 @@ export function registerAiIpc(): void {
       } catch (e) {
         return { ok: false, message: errorMessage(e) }
       }
-      const typedKey = input.apiKey === null ? '' : input.apiKey.trim()
-      const apiKey =
-        typedKey !== '' ? typedKey : (readAiSecretConfig(settingsDir(), electronCipher)?.apiKey ?? null)
+      const apiKey = resolveApiKey(settingsDir(), input.apiKey, electronCipher)
       if (apiKey === null) return { ok: false, message: '请先填写 API key' }
       return testAiConnection({ baseUrl, model, apiKey }, defaultAiHttpPost)
     }

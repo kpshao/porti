@@ -46,6 +46,15 @@ export function latestNavAsOf(
   return best
 }
 
+/** 全部净值记录中的最大日期；空集为 null。数据新鲜度口径只此一处。 */
+export function latestNavDate(points: NavPoint[]): string | null {
+  let latest: string | null = null
+  for (const p of points) {
+    if (latest === null || p.date > latest) latest = p.date
+  }
+  return latest
+}
+
 /** 成本基础状态：移动加权平均成本法下某基金的份额/剩余持仓成本/已实现收益/分红现金累计。 */
 export interface CostBasisState {
   shares: number // 当前份额（直接累加，卖出存负值——与 sharesAsOf 同规则）
@@ -201,7 +210,8 @@ export function computeConcentrationMetrics(positions: FundPosition[]): Concentr
       hhi: 0,
       effectiveHoldings: null,
       valuedCount: valued.length,
-      missingNavCount
+      missingNavCount,
+      heldCount: held.length
     }
   }
   const weights = valued
@@ -215,7 +225,8 @@ export function computeConcentrationMetrics(positions: FundPosition[]): Concentr
     hhi,
     effectiveHoldings: hhi > 0 ? 1 / hhi : null,
     valuedCount: weights.length,
-    missingNavCount
+    missingNavCount,
+    heldCount: held.length
   }
 }
 

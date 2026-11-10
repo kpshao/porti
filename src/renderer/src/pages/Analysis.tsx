@@ -78,7 +78,7 @@ export default function Analysis({ onNavigate }: AnalysisProps): React.JSX.Eleme
       )}
 
       <AiChat
-        hasHoldings={metrics !== null && metrics.valuedCount + metrics.missingNavCount > 0}
+        hasHoldings={metrics !== null && metrics.heldCount > 0}
         onNavigateToSettings={() => onNavigate?.('settings')}
       />
     </section>

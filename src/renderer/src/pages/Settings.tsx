@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AiConfigView } from '../../../main/aiTypes'
+import type { AiConfigInput, AiConfigView } from '../../../main/aiTypes'
 import { AI_PROVIDER_PRESETS } from '../utils/aiPresets'
 import { ipcErrorMessage } from '../utils/ipc'
 
@@ -36,7 +36,7 @@ export default function Settings(): React.JSX.Element {
   }, [])
 
   const aiPresetModelHint =
-    AI_PROVIDER_PRESETS.find((p) => p.label === aiPreset)?.modelHint ?? '例如 gpt-4o-mini'
+    AI_PROVIDER_PRESETS.find((p) => p.id === aiPreset)?.modelHint ?? '例如 gpt-4o-mini'
 
   /** 异步操作的公共包装：清旧消息 → 忙态 → 错误回显 → 复位（数据备份与 AI 按钮共用） */
   const runAction = async <T extends string>(
@@ -70,13 +70,13 @@ export default function Settings(): React.JSX.Element {
       fn
     )
 
-  const selectAiPreset = (label: string): void => {
-    setAiPreset(label)
-    const preset = AI_PROVIDER_PRESETS.find((p) => p.label === label)
+  const selectAiPreset = (id: string): void => {
+    setAiPreset(id)
+    const preset = AI_PROVIDER_PRESETS.find((p) => p.id === id)
     if (preset !== undefined) setAiBaseUrl(preset.baseUrl)
   }
 
-  const aiInput = (): { baseUrl: string; model: string; apiKey: string | null } => ({
+  const aiInput = (): AiConfigInput => ({
     baseUrl: aiBaseUrl,
     model: aiModel,
     apiKey: aiKey.trim() === '' ? null : aiKey.trim()
@@ -257,7 +257,7 @@ export default function Settings(): React.JSX.Element {
             <select value={aiPreset} onChange={(e) => selectAiPreset(e.target.value)}>
               <option value="">自定义</option>
               {AI_PROVIDER_PRESETS.map((preset) => (
-                <option key={preset.label} value={preset.label}>
+                <option key={preset.id} value={preset.id}>
                   {preset.label}
                 </option>
               ))}

@@ -3,7 +3,7 @@
 // 本模块的错误文案固定为中文分类、不回显响应体（避免带出 key）；联网边界见 ADR-0003。
 
 import { buildChatCompletionsUrl } from './aiConfig'
-import type { AiConnectionTestResult, AiTokenUsage } from './aiTypes'
+import type { AiConnectionTestResult, AiCredentials, AiTokenUsage } from './aiTypes'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -186,10 +186,7 @@ async function postChatCompletion(
   return response
 }
 
-export interface StreamChatRequest {
-  baseUrl: string
-  model: string
-  apiKey: string
+export interface StreamChatRequest extends AiCredentials {
   messages: ChatMessage[]
   /** 外部停止信号（用户在界面上点「停止」） */
   signal?: AbortSignal
@@ -239,6 +236,10 @@ export async function streamChatCompletion(
         }
         if (parsed === null || typeof parsed !== 'object') continue
         const obj = parsed as Record<string, unknown>
+        // HTTP 200 之后的流内错误（限流/过载等）：固定中文文案，不回显供应商原文
+        if (obj.error !== undefined && obj.error !== null) {
+          throw new AiProviderError('server', 'AI 端点返回错误，回答未完成，请重试')
+        }
         const parsedUsage = parseUsage(obj.usage)
         if (parsedUsage !== null) usage = parsedUsage
         const choices = obj.choices
@@ -257,11 +258,7 @@ export async function streamChatCompletion(
   )
 }
 
-export interface TestConnectionRequest {
-  baseUrl: string
-  model: string
-  apiKey: string
-}
+export type TestConnectionRequest = AiCredentials
 
 /**
  * 测试连接：一次非流式、max_tokens=1 的最小请求；失败原因按 HTTP 状态/网络/超时分类。

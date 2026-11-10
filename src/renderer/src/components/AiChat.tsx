@@ -9,7 +9,7 @@ import Markdown from './Markdown'
 interface AiChatProps {
   /** 跳转到设置页（未配置 AI 时的引导） */
   onNavigateToSettings: () => void
-  /** 是否有在持基金（无持仓时禁用发送） */
+  /** 是否有在持基金（没有在持基金时禁用发送） */
   hasHoldings: boolean
 }
 
