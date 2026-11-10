@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react'
 import type { AnalysisData } from '../../../main/analysisTypes'
+import AiChat from '../components/AiChat'
 import { formatEffectiveHoldings, formatHhi, formatPercent } from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
 
-/** 分析页（指标区）：本地计算的持仓集中度指标，只读、不依赖 AI 配置。
- *  口径见 CONTEXT.md「集中度指标」。 */
-export default function Analysis(): React.JSX.Element {
+interface AnalysisProps {
+  /** 页面导航（未配置 AI 时引导去设置页） */
+  onNavigate?: (page: string) => void
+}
+
+/** 分析页：上半部为本地计算的持仓集中度指标（只读、不依赖 AI 配置），下半部为 AI 对话。
+ *  口径见 CONTEXT.md「集中度指标」；AI 对话的联网边界见 ADR-0003。 */
+export default function Analysis({ onNavigate }: AnalysisProps): React.JSX.Element {
   const [data, setData] = useState<AnalysisData | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -22,6 +28,10 @@ export default function Analysis(): React.JSX.Element {
       <h1>分析</h1>
 
       {error !== null && <div className="banner banner-error">{error}</div>}
+
+      {data !== null && (
+        <p className="muted analysis-freshness">数据新鲜度：最新净值日期 {data.latestNavDate ?? '—'}</p>
+      )}
 
       {metrics !== null && metrics.valuedCount === 0 && (
         <p className="placeholder">
@@ -66,6 +76,11 @@ export default function Analysis(): React.JSX.Element {
           </p>
         </div>
       )}
+
+      <AiChat
+        hasHoldings={metrics !== null && metrics.valuedCount + metrics.missingNavCount > 0}
+        onNavigateToSettings={() => onNavigate?.('settings')}
+      />
     </section>
   )
 }

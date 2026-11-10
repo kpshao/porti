@@ -23,8 +23,27 @@ function seedV1Db(path: string): Database.Database {
   return db
 }
 
+/** v2 夹具：当前 schema 去掉 v3 新增的对话表，版本标为 2 */
+function seedV2Db(path: string): Database.Database {
+  const db = new Database(path)
+  db.exec(SCHEMA)
+  db.exec('DROP TABLE ai_messages')
+  db.pragma('user_version = 2')
+  db.prepare(
+    `INSERT INTO funds (code, name, category, fund_type, created_at)
+     VALUES ('002066', '迁移保留基金', '权益', NULL, '2026-01-01')`
+  ).run()
+  return db
+}
+
 function fundColumns(db: Database.Database): string[] {
   return (db.prepare('PRAGMA table_info(funds)').all() as { name: string }[]).map((c) => c.name)
+}
+
+function tableNames(db: Database.Database): string[] {
+  return (
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]
+  ).map((t) => t.name)
 }
 
 function backupFiles(dir: string): string[] {
@@ -78,6 +97,31 @@ describe('migrateDatabase — v1 → v2 删除单只基金目标金额', () => {
 
     expect(() => migrateDatabase(db, 1)).toThrow()
     expect(fundColumns(db)).toContain('target_amount')
+    db.close()
+  })
+})
+
+describe('migrateDatabase — v2 → v3 新增单线程对话表', () => {
+  it('纯新增 ai_messages 表，保留旧数据且不产生备份', () => {
+    const dir = tempDir()
+    const db = seedV2Db(join(dir, 'porti.db'))
+
+    migrateDatabase(db, 2)
+
+    expect(tableNames(db)).toContain('ai_messages')
+    expect(db.prepare('SELECT code, name FROM funds').get()).toEqual({
+      code: '002066',
+      name: '迁移保留基金'
+    })
+    // 纯新增表不涉及破坏性变更，不应产生 .bak 副本
+    expect(backupFiles(dir)).toHaveLength(0)
+    db.close()
+  })
+
+  it('重复迁移幂等：表已存在时不报错', () => {
+    const db = seedV2Db(join(tempDir(), 'porti.db'))
+    migrateDatabase(db, 2)
+    expect(() => migrateDatabase(db, 2)).not.toThrow()
     db.close()
   })
 })

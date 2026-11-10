@@ -22,6 +22,7 @@
     "src/main/statsTypes.ts",
     "src/main/fundDetailTypes.ts",
     "src/main/analysisTypes.ts",
-    "src/main/aiTypes.ts"
+    "src/main/aiTypes.ts",
+    "src/shared/**/*"
   ]
 }

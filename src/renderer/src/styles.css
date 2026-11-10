@@ -248,6 +248,11 @@ body {
   flex-wrap: wrap;
 }
 
+/* 分析页：数据新鲜度与指标卡片之间的间距（新鲜度是页面级说明） */
+.analysis-freshness {
+  margin-bottom: 12px;
+}
+
 /* 分析页：指标行与等权基准之间的间距（基准是参照说明，不与指标抢层级） */
 .equal-weight-baseline {
   margin-top: 12px;
@@ -743,4 +748,248 @@ body {
 
 .fund-link:hover {
   text-decoration: underline;
+}
+
+/* ---- AI 对话（分析页） ---- */
+.chat-endpoint {
+  white-space: nowrap;
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 440px;
+  overflow-y: auto;
+  padding: 4px 0 12px;
+}
+
+/* 对话空状态：与页面级 .placeholder 区分（分析页指标空状态用 .placeholder） */
+.chat-empty {
+  padding: 8px 0;
+}
+
+.chat-notice .mono {
+  word-break: break-all;
+}
+
+.chat-message {
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.chat-message-user {
+  background: #f2f3f5;
+  margin-left: 48px;
+}
+
+.chat-message-assistant {
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  margin-right: 48px;
+}
+
+.chat-streaming {
+  border-style: dashed;
+}
+
+.chat-role {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: #86909c;
+  font-size: 12px;
+}
+
+.chat-user-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-interrupted {
+  border: 1px solid #f77234;
+  border-radius: 4px;
+  padding: 0 6px;
+  color: #f77234;
+  font-size: 11px;
+}
+
+.chat-usage {
+  display: block;
+  margin-top: 8px;
+  color: #86909c;
+  font-size: 12px;
+}
+
+.chat-compose {
+  margin-top: 8px;
+}
+
+.chat-input {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #c9cdd4;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.chat-input:focus {
+  border-color: #3370ff;
+  outline: none;
+}
+
+.chat-input:disabled {
+  background: #f2f3f5;
+  color: #86909c;
+}
+
+.chat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chat-error,
+.chat-config-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.snapshot-preview {
+  max-height: 50vh;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 12px;
+  background: #f7f8fa;
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ---- AI 回答的 Markdown ---- */
+.markdown {
+  font-size: 14px;
+  line-height: 1.75;
+  word-break: break-word;
+}
+
+.markdown > *:first-child {
+  margin-top: 0;
+}
+
+.markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.md-paragraph {
+  margin: 6px 0;
+}
+
+.md-heading {
+  margin: 12px 0 6px;
+  font-size: 15px;
+}
+
+h4.md-heading {
+  font-size: 14px;
+}
+
+h5.md-heading,
+h6.md-heading {
+  font-size: 13px;
+  color: #4e5969;
+}
+
+.md-list {
+  margin: 6px 0 6px 22px;
+}
+
+.md-list li {
+  margin: 2px 0;
+}
+
+.md-code {
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: #f2f3f5;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 13px;
+}
+
+.md-pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: #f7f8fa;
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.md-pre code {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.md-quote {
+  margin: 8px 0;
+  padding-left: 10px;
+  border-left: 3px solid #c9cdd4;
+  color: #4e5969;
+}
+
+.md-table-wrap {
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.md-table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.md-table th,
+.md-table td {
+  border: 1px solid #e5e6eb;
+  padding: 4px 10px;
+  text-align: left;
+}
+
+.md-table th {
+  background: #f2f3f5;
+  font-weight: 600;
+}
+
+.md-hr {
+  border: none;
+  border-top: 1px solid #e5e6eb;
+  margin: 12px 0;
+}
+
+.md-link {
+  color: #3370ff;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.md-image {
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: #f2f3f5;
+  color: #86909c;
+  font-size: 12px;
 }

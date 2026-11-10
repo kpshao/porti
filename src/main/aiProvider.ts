@@ -3,19 +3,15 @@
 // 本模块的错误文案固定为中文分类、不回显响应体（避免带出 key）；联网边界见 ADR-0003。
 
 import { buildChatCompletionsUrl } from './aiConfig'
-import type { AiConnectionTestResult } from './aiTypes'
+import type { AiConnectionTestResult, AiTokenUsage } from './aiTypes'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
 }
 
-/** 供应商返回的 token 用量（字段缺失时整块为 null） */
-export interface ChatUsage {
-  promptTokens: number
-  completionTokens: number
-  totalTokens: number
-}
+/** 供应商返回的 token 用量（字段缺失时整块为 null）；形状与 IPC 契约共用 */
+export type ChatUsage = AiTokenUsage
 
 /** 注入式 HTTP 请求（与 fetcher 的 HttpGet 同型：网络细节由调用方注入） */
 export interface ProviderRequest {

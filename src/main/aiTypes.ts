@@ -34,3 +34,42 @@ export interface SnapshotPreview {
   /** 超过约 60k token，提示可能被模型截断（不自动裁剪） */
   exceedsEstimateLimit: boolean
 }
+
+/** 供应商返回的 token 用量（三字段由供应商成组返回；缺失时整块为 null） */
+export interface AiTokenUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
+/** 单条对话消息（界面视图；已落库，含 id 与中断标记） */
+export interface AiChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  /** true = 停止或出错时保留的部分回答 */
+  interrupted: boolean
+  /** 供应商未返回用量时为 null（界面显示「—」） */
+  usage: AiTokenUsage | null
+  createdAt: string
+}
+
+/** 主进程 → 界面的流式对话事件（单线程，同一时刻只有一个进行中的请求） */
+export type AiChatEvent =
+  | { type: 'delta'; text: string }
+  /** 正常完成或用户停止；assistant 为落库消息（无内容可落库时为 null） */
+  | { type: 'finished'; assistant: AiChatMessage | null }
+  /** 请求失败：error 为中文原因，assistant 为已保留的部分回答（无内容时为 null） */
+  | { type: 'error'; error: string; assistant: AiChatMessage | null }
+
+/** 对话进行状态（界面离开再进入时恢复流式草稿） */
+export interface AiChatStatus {
+  generating: boolean
+  partialText: string
+}
+
+/** AI 回答中的外链经主进程校验后交给系统浏览器 */
+export interface OpenExternalResult {
+  ok: boolean
+  message?: string
+}

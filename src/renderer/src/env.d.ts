@@ -8,7 +8,16 @@ import type { OverviewData } from '../../main/overviewTypes'
 import type { StatsData } from '../../main/statsTypes'
 import type { FundDetailData } from '../../main/fundDetailTypes'
 import type { AnalysisData } from '../../main/analysisTypes'
-import type { AiConfigInput, AiConfigView, AiConnectionTestResult, SnapshotPreview } from '../../main/aiTypes'
+import type {
+  AiChatEvent,
+  AiChatMessage,
+  AiChatStatus,
+  AiConfigInput,
+  AiConfigView,
+  AiConnectionTestResult,
+  OpenExternalResult,
+  SnapshotPreview
+} from '../../main/aiTypes'
 
 declare global {
   interface DbInfo {
@@ -41,6 +50,14 @@ declare global {
       aiConfigTest: (input: AiConfigInput) => Promise<AiConnectionTestResult>
       aiConfirmFirstSend: () => Promise<void>
       aiSnapshotPreview: () => Promise<SnapshotPreview>
+      aiChatHistory: () => Promise<AiChatMessage[]>
+      aiChatStatus: () => Promise<AiChatStatus>
+      aiChatSend: (content: string) => Promise<AiChatMessage>
+      aiChatRetry: () => Promise<AiChatMessage>
+      aiChatStop: () => Promise<void>
+      aiChatClear: () => Promise<void>
+      aiChatOnEvent: (callback: (event: AiChatEvent) => void) => () => void
+      aiOpenExternal: (url: string) => Promise<OpenExternalResult>
       fundDetailData: (fundCode: string, range: FundSeriesRange) => Promise<FundDetailData>
       exportExcel: () => Promise<{ path: string } | null>
       exportCsv: () => Promise<{ dir: string; files: string[] } | null>
