@@ -241,9 +241,14 @@ async function shotWithState(session, label, file) {
   const migrated = new Database(join(profileA, 'porti.db'), { readonly: true })
   const columns = migrated.prepare('PRAGMA table_info(funds)').all().map((c) => c.name)
   const version = migrated.pragma('user_version', { simple: true })
+  const tables = migrated
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+    .all()
+    .map((t) => t.name)
   migrated.close()
   if (columns.includes('target_amount')) problems.push('A: 启动后 target_amount 列仍在')
-  if (version !== 3) problems.push(`A: 启动后数据版本应为 3，实际 ${version}`)
+  if (version !== 5) problems.push(`A: 启动后数据版本应为 5，实际 ${version}`)
+  if (!tables.includes('bucket_targets')) problems.push('A: 升级后缺少 bucket_targets 表')
   if (!readdirSync(profileA).some((f) => f.startsWith('porti.db.bak-'))) {
     problems.push('A: 删列前未生成 .bak 备份')
   }

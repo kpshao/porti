@@ -4,7 +4,7 @@
 import { existsSync } from 'fs'
 import type Database from 'better-sqlite3'
 import { LEGACY_FUND_CATEGORIES, resolveLegacyCategory } from '../engine/classification'
-import { AI_MESSAGES_TABLE_SQL, FUND_MODEL_CHECKS } from './schema'
+import { AI_MESSAGES_TABLE_SQL, BUCKET_TARGETS_TABLE_SQL, FUND_MODEL_CHECKS } from './schema'
 
 /** 迁移前的一次性副本：VACUUM INTO 生成一致性快照（含未落盘 WAL 内容） */
 function backupBeforeMigration(database: Database.Database): void {
@@ -106,5 +106,9 @@ export function migrateDatabase(database: Database.Database, from: number): void
   if (from < 4) {
     // 3 → 4：基金新模型字段（账本大类/产品形态/权益系数），迁移前备份
     migrateFundsToV4(database)
+  }
+  if (from < 5) {
+    // 4 → 5：新增配置桶目标表（纯新增，不备份，不写目标；初始化见 targetService.loadBucketTargets）
+    database.exec(BUCKET_TARGETS_TABLE_SQL)
   }
 }

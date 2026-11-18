@@ -2,7 +2,14 @@
 
 import type Database from 'better-sqlite3'
 import { resolveLegacyCategory } from '../engine'
-import type { CategoryTarget, ClassifiedFund, NavPoint, Transaction, TransactionRow } from '../engine'
+import type {
+  BucketTarget,
+  CategoryTarget,
+  ClassifiedFund,
+  NavPoint,
+  Transaction,
+  TransactionRow
+} from '../engine'
 
 /** 写入完整基金行；创建基金与 Excel 导入共用同一列集合，避免加列时漏改 */
 export function insertFund(db: Database.Database, fund: ClassifiedFund, createdAt: string): void {
@@ -84,6 +91,14 @@ export function selectCategoryTargets(db: Database.Database): CategoryTarget[] {
     .prepare('SELECT category, target_ratio FROM category_targets')
     .all() as { category: string; target_ratio: number }[]
   return rows.map((r) => ({ category: r.category, targetRatio: r.target_ratio }))
+}
+
+/** 配置桶目标比例；顺序不属于本函数的契约（见 ALLOCATION_BUCKETS）。 */
+export function selectBucketTargets(db: Database.Database): BucketTarget[] {
+  const rows = db
+    .prepare('SELECT bucket, target_ratio FROM bucket_targets')
+    .all() as { bucket: BucketTarget['bucket']; target_ratio: number }[]
+  return rows.map((r) => ({ bucket: r.bucket, targetRatio: r.target_ratio }))
 }
 
 export function selectTransactions(db: Database.Database): TransactionRow[] {

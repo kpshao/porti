@@ -436,7 +436,7 @@ if (sourceVersion === 1) {
     .split('\n')
     .map((line) => line.split('|')[1])
     .filter(Boolean)
-  check(version === 3, '真实库副本启动后数据版本升到 3', `实际 ${version}`)
+  check(version === 5, '真实库副本启动后数据版本升到 5', `实际 ${version}`)
   check(!columns.includes('target_amount'), '真实库副本启动后 target_amount 列已删除', columns.join('/'))
   const backups = readdirSync(profileDir).filter((f) => f.startsWith('porti.db.bak-'))
   check(backups.length > 0, '删列前生成了 .bak 备份', backups.join(', '))
