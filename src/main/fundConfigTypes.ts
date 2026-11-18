@@ -21,7 +21,7 @@ export interface EquityRatioConfirmInput {
   confirmedRatio: number // 用户确认后的权益系数 0–1
 }
 
-/** 抓取数据源展示标签（「股票占净比（季报）」候选值旁显示） */
+/** 抓取数据源展示标签 */
 export const EQUITY_FETCH_DATA_SOURCE_LABEL: Record<EquityFetchDataSource, string> = {
   pingzhongdata: '东方财富 pingzhongdata',
   f10: '东方财富 F10（回退）'

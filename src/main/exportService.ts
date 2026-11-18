@@ -13,7 +13,8 @@ import {
   NAV_SOURCE_LABEL,
   computeAllocationComparison,
   computePositions,
-  computeTotals
+  computeTotals,
+  isHeld
 } from '../engine'
 import type { AllocationComparison, AllocationComparisonRow } from '../engine'
 import { selectFunds, selectNavPoints, selectTransactions } from './repo'
@@ -58,7 +59,8 @@ function percentText(v: number): string {
   return `${(v * 100).toFixed(2)}%`
 }
 
-/** 配置对比的归一化说明：归一化判定与概览页横幅同口径；未配置/无需归一化两种文案为导出补充 */
+/** 配置对比的归一化说明：判定依据为引擎 AllocationComparison 的 targetTotal / targetNormalized；
+ *  未配置/无需归一化两种文案为导出补充。 */
 function targetNote(comparison: AllocationComparison): string {
   if (comparison.targetTotal <= 0) return '目标合计为 0，视为未配置；偏离为空。'
   if (comparison.targetNormalized) {
@@ -117,9 +119,9 @@ function overviewSheet(
         '基金代码', '基金名称', '产品形态', '账本大类', '权益系数(%)', '系数来源', '系数数据日期',
         '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)'
       ],
-      // 与概览页持仓明细同一口径：只列在持持仓（份额 > 0）；已清仓与超卖负份额都不列（它们在概览页的「已清仓」组里）
+      // 持仓明细只列在持持仓（见 CONTEXT.md「在持」与引擎 isHeld）；已清仓与超卖负份额都不列
       ...positions
-        .filter((p) => p.shares > 0)
+        .filter(isHeld)
         .map((p) => {
           const fund = fundByCode.get(p.fundCode)! // 持仓由同一 funds 生成，必有对应基金
           return [

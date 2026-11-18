@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { CLOSED_GROUP } from '../../../engine'
-import type { AllocationBucket, BucketTarget } from '../../../engine'
 import type { OverviewData } from '../../../main/overviewTypes'
 import FundDetail from '../components/FundDetail'
 import SummaryCards from '../components/SummaryCards'
@@ -14,9 +13,8 @@ import {
 } from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
 import { pnlClass } from '../utils/pnl'
-
-/** 行内编辑暂存值：键为配置桶名（目标比例） */
-type Edits = Partial<Record<AllocationBucket, string>>
+import { buildTargetsPayload } from '../utils/targets'
+import type { TargetEdits } from '../utils/targets'
 
 /** 行内数字编辑框：失焦或回车提交（概览页目标比例） */
 function InlineNumberEdit(props: {
@@ -58,7 +56,7 @@ function GroupMetricRow(props: { label: string; value: number | null }): React.J
 
 export default function Overview(): React.JSX.Element {
   const [data, setData] = useState<OverviewData | null>(null)
-  const [ratioEdits, setRatioEdits] = useState<Edits>({})
+  const [ratioEdits, setRatioEdits] = useState<TargetEdits>({})
   const [busy, setBusy] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<{ code: string; name: string } | null>(null)
@@ -83,16 +81,11 @@ export default function Overview(): React.JSX.Element {
   const persistTargets = (): void => {
     if (data === null) return
     const rows = data.comparison.rows
-    const payload: BucketTarget[] = []
-    for (const row of rows) {
-      const raw = ratioEdits[row.bucket] ?? ratioToPercentText(row.targetRatio)
-      const n = Number(raw.trim())
-      if (!Number.isFinite(n)) {
-        setError('目标比例需为百分比数字（0–100）')
-        setRatioEdits({})
-        return
-      }
-      payload.push({ bucket: row.bucket, targetRatio: n / 100 })
+    const payload = buildTargetsPayload(rows, ratioEdits)
+    if (payload === null) {
+      setError('目标比例需为百分比数字（0–100）')
+      setRatioEdits({})
+      return
     }
     const changed = payload.some((t) => {
       const original = rows.find((r) => r.bucket === t.bucket)?.targetRatio ?? 0
@@ -115,9 +108,6 @@ export default function Overview(): React.JSX.Element {
       })
       .finally(() => setBusy(false))
   }
-
-  /** 行内编辑提交：数值没变就不写库 */
-  const saveEditedTargets = (): void => persistTargets()
 
   return (
     <section className="page">
@@ -255,7 +245,7 @@ export default function Overview(): React.JSX.Element {
                         min="0"
                         max="100"
                         onChange={(text) => setRatioEdits((prev) => ({ ...prev, [r.bucket]: text }))}
-                        onCommit={saveEditedTargets}
+                        onCommit={persistTargets}
                       />
                     </td>
                     <td>{formatPercent(r.investedRatio)}</td>

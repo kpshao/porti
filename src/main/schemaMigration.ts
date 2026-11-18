@@ -39,7 +39,7 @@ function backupBeforeMigration(database: Database.Database): void {
   database.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`)
 }
 
-/** v4 新增的基金模型字段；以此判定迁移是否已执行（测试的 v3 夹具按此列表还原旧结构） */
+/** v4 新增的基金模型字段；以此判定迁移是否已执行 */
 export const V4_FUND_COLUMNS = [
   'ledger_category',
   'product_form',
@@ -108,7 +108,24 @@ function migrateFundsToV4(database: Database.Database): void {
   })()
 }
 
-/** 旧五类目标 → 三桶目标：剔除流动性，其余归一化，固收+ 按默认权益系数拆进稳健/权益。 */
+/** 预检旧目标类别：除「流动性」（按 spec 剔除）外必须是已知旧类别，未知值中止迁移并列出，不做静默兜底。 */
+function assertKnownLegacyTargetCategories(database: Database.Database): void {
+  const categories = (
+    database.prepare('SELECT DISTINCT category FROM category_targets ORDER BY category').all() as {
+      category: string
+    }[]
+  ).map((row) => row.category)
+  const unknown = categories.filter(
+    (category) => category !== '流动性' && LEGACY_LABEL_TO_PRODUCT_FORM[category] === undefined
+  )
+  if (unknown.length > 0) {
+    const list = unknown.map((category) => `「${category}」`).join('、')
+    throw new Error(`无法识别的旧目标类别：${list}；迁移已中止，请先修正这些目标`)
+  }
+}
+
+/** 旧五类目标 → 三桶目标：剔除流动性，其余归一化，固收+ 按默认权益系数拆进稳健/权益。
+ *  调用方须先通过 assertKnownLegacyTargetCategories，此处只处理已知类别。 */
 function convertLegacyTargets(
   rows: { category: string; target_ratio: number }[]
 ): BucketTarget[] | null {
@@ -116,7 +133,6 @@ function convertLegacyTargets(
   for (const row of rows) {
     if (row.category === '流动性') continue
     const productForm = LEGACY_LABEL_TO_PRODUCT_FORM[row.category]
-    if (productForm === undefined) continue
     retained.set(productForm, (retained.get(productForm) ?? 0) + row.target_ratio)
   }
   const total = [...retained.values()].reduce((sum, ratio) => sum + ratio, 0)
@@ -150,6 +166,9 @@ function shrinkLegacyModel(database: Database.Database): void {
   const hasCategory = columns.includes('category')
   const hasLegacyTargets = tableExists(database, 'category_targets')
   if (!hasCategory && !hasLegacyTargets) return
+
+  // 预检：未知旧目标类别必须中止，避免静默丢弃用户目标
+  if (hasLegacyTargets) assertKnownLegacyTargetCategories(database)
 
   backupBeforeMigration(database)
   database.transaction(() => {

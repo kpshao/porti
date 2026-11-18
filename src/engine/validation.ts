@@ -41,14 +41,8 @@ export interface FundUpdateInput {
   equityRatio: number // 0–1（界面按百分比录入）
 }
 
-/** 归一化后的基金配置更新 */
-export interface NormalizedFundUpdate {
-  code: string
-  name: string
-  productForm: ProductForm
-  ledgerCategory: LedgerCategory
-  equityRatio: number
-}
+/** 归一化后的基金配置更新（与输入同构，语义命名区分校验前后） */
+export type NormalizedFundUpdate = FundUpdateInput
 
 /** 基金代码归一化：6 位补零字符串；无法识别返回 null（importer 共用） */
 export function normalizeFundCode(raw: unknown): string | null {
