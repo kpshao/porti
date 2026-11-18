@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest'
 import Database from 'better-sqlite3'
 import * as XLSX from 'xlsx'
 import { SCHEMA } from './schema'
+import { resolveLegacyCategory } from '../engine'
 import { buildCsvContent, buildExportData, writeExportCsvs, writeExportExcel } from './exportService'
+import { insertFund } from './repo'
 import type { ExportSheet } from './exportService'
 
 function freshDb(): Database.Database {
@@ -19,10 +21,9 @@ function num(v: number, z: string): { v: number; z: string } {
   return { v, z }
 }
 
-function insertFund(db: Database.Database, code: string, name: string, category: string): void {
-  db.prepare('INSERT INTO funds (code, name, category, created_at) VALUES (?,?,?,?)').run(
-    code, name, category, '2026-01-01'
-  )
+function seedFund(db: Database.Database, code: string, name: string, category: string): void {
+  const { classification } = resolveLegacyCategory(category)!
+  insertFund(db, { code, name, category, fundType: null, ...classification }, '2026-01-01')
 }
 
 function insertTx(db: Database.Database, date: string, type: string, code: string, amount: number, shares: number | null, nav: number | null, fee: number | null, note: string | null): void {
@@ -38,8 +39,8 @@ function insertTx(db: Database.Database, date: string, type: string, code: strin
  *  - 汇总：总资产 26589.4895、总盈亏 3189.4895、总收益率 13.6302…%、已实现盈亏 60、总收益 3249.4895
  */
 function seedDb(db: Database.Database): Database.Database {
-  insertFund(db, '000001', '测试权益', '权益')
-  insertFund(db, '002065', '固收增强', '固守+')
+  seedFund(db, '000001', '测试权益', '权益')
+  seedFund(db, '002065', '固收增强', '固守+')
   db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run('固守+', 0.25)
   db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run('权益', 0.20)
   insertTx(db, '2026-01-15', '买入', '000001', 1000, 100, 10, 2, null)
@@ -128,12 +129,12 @@ describe('buildExportData — 概览表', () => {
   it('持仓明细只列在持持仓：已清仓与超卖负份额都不列（与概览页同一口径）', () => {
     const db = seedDb(freshDb())
     // 000217：买入 1000 份后全部卖出 → 已清仓（份额归零，净值仍在）
-    insertFund(db, '000217', '测试黄金', '黄金')
+    seedFund(db, '000217', '测试黄金', '黄金')
     insertTx(db, '2026-05-01', '买入', '000217', 5000, 1000, 5, null, null)
     insertTx(db, '2026-05-20', '卖出', '000217', -6000, -1000, 6, null, null)
     db.prepare('INSERT INTO nav_history (fund_code, date, nav, source) VALUES (?,?,?,?)').run('000217', '2026-05-20', 6, 'manual')
     // 999999：卖出多于买入 → 超卖（份额为负，数据错误）
-    insertFund(db, '999999', '测试超卖', '权益')
+    seedFund(db, '999999', '测试超卖', '权益')
     insertTx(db, '2026-06-01', '买入', '999999', 1000, 100, 10, null, null)
     insertTx(db, '2026-06-02', '卖出', '999999', -2200, -200, 11, null, null)
     db.prepare('INSERT INTO nav_history (fund_code, date, nav, source) VALUES (?,?,?,?)').run('999999', '2026-06-02', 11, 'manual')

@@ -3,7 +3,8 @@
 
 import { existsSync } from 'fs'
 import type Database from 'better-sqlite3'
-import { AI_MESSAGES_TABLE_SQL } from './schema'
+import { LEGACY_FUND_CATEGORIES, resolveLegacyCategory } from '../engine/classification'
+import { AI_MESSAGES_TABLE_SQL, FUND_MODEL_CHECKS } from './schema'
 
 /** 迁移前的一次性副本：VACUUM INTO 生成一致性快照（含未落盘 WAL 内容） */
 function backupBeforeMigration(database: Database.Database): void {
@@ -19,6 +20,75 @@ function backupBeforeMigration(database: Database.Database): void {
   database.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`)
 }
 
+/** v4 新增的基金模型字段；以此判定迁移是否已执行（测试的 v3 夹具按此列表还原旧结构） */
+export const V4_FUND_COLUMNS = [
+  'ledger_category',
+  'product_form',
+  'equity_ratio',
+  'equity_ratio_source',
+  'equity_ratio_as_of'
+]
+
+/**
+ * v3 → v4：为基金增加账本大类、产品形态、权益系数、来源与数据日期，并按旧五类回填。
+ * 旧 category 值原样保留；遇到无法识别的旧大类时中止迁移并列出具体基金与值，不做静默兜底。
+ * 注：ADD COLUMN 无法带 NOT NULL（无默认值时 SQLite 不允许），故迁移库的新列可空、
+ * 由回填保证无 NULL；新库建表仍带 NOT NULL（见 schema.ts）。
+ */
+function migrateFundsToV4(database: Database.Database): void {
+  const columns = (database.prepare('PRAGMA table_info(funds)').all() as { name: string }[]).map(
+    (c) => c.name
+  )
+  const present = V4_FUND_COLUMNS.filter((c) => columns.includes(c))
+  if (present.length === V4_FUND_COLUMNS.length) return // 幂等：已迁移
+  if (present.length > 0) {
+    throw new Error(`基金表的新模型字段不完整（已有：${present.join('、')}），迁移已中止`)
+  }
+
+  // 预检：未知旧大类必须中止，避免把脏值静默映射成错误的分类
+  const placeholders = LEGACY_FUND_CATEGORIES.map(() => '?').join(',')
+  const unknown = database
+    .prepare(
+      `SELECT code, category FROM funds WHERE category NOT IN (${placeholders}) ORDER BY code`
+    )
+    .all(...LEGACY_FUND_CATEGORIES) as { code: string; category: string }[]
+  if (unknown.length > 0) {
+    const list = unknown.map((r) => `「${r.category}」（基金 ${r.code}）`).join('、')
+    throw new Error(`无法识别的旧大类：${list}；迁移已中止，请先修正这些基金的大类`)
+  }
+
+  backupBeforeMigration(database)
+  database.transaction(() => {
+    database.exec(
+      `ALTER TABLE funds ADD COLUMN ledger_category TEXT CHECK (${FUND_MODEL_CHECKS.ledgerCategory})`
+    )
+    database.exec(
+      `ALTER TABLE funds ADD COLUMN product_form TEXT CHECK (${FUND_MODEL_CHECKS.productForm})`
+    )
+    database.exec(
+      `ALTER TABLE funds ADD COLUMN equity_ratio REAL CHECK (${FUND_MODEL_CHECKS.equityRatio})`
+    )
+    database.exec(
+      `ALTER TABLE funds ADD COLUMN equity_ratio_source TEXT CHECK (${FUND_MODEL_CHECKS.equityRatioSource})`
+    )
+    database.exec('ALTER TABLE funds ADD COLUMN equity_ratio_as_of TEXT')
+    const update = database.prepare(
+      `UPDATE funds
+       SET ledger_category = ?, product_form = ?, equity_ratio = ?, equity_ratio_source = 'manual', equity_ratio_as_of = NULL
+       WHERE category = ?`
+    )
+    for (const legacy of LEGACY_FUND_CATEGORIES) {
+      const { classification } = resolveLegacyCategory(legacy)!
+      update.run(
+        classification.ledgerCategory,
+        classification.productForm,
+        classification.equityRatio,
+        legacy
+      )
+    }
+  })()
+}
+
 /** 从 from 版本逐级迁移到当前结构；失败抛错（调用方不升版本，下次启动重试） */
 export function migrateDatabase(database: Database.Database, from: number): void {
   if (from < 2) {
@@ -32,5 +102,9 @@ export function migrateDatabase(database: Database.Database, from: number): void
   if (from < 3) {
     // 2 → 3：新增单线程 AI 对话表，纯新增、不改旧表，无需备份
     database.exec(AI_MESSAGES_TABLE_SQL)
+  }
+  if (from < 4) {
+    // 3 → 4：基金新模型字段（账本大类/产品形态/权益系数），迁移前备份
+    migrateFundsToV4(database)
   }
 }

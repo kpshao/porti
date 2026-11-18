@@ -38,6 +38,38 @@ describe('createFund — 新建基金', () => {
       createFund(db, { code: '000001', name: '重复', category: '权益', fundType: null })
     ).toThrow(/已存在/)
   })
+
+  it('按现有表单的旧大类补齐账本大类、产品形态与默认权益系数', () => {
+    const db = freshDb()
+    const inputs = [
+      ['000001', '纯债基金', '纯债'],
+      ['000002', '固收加基金', '固守+'],
+      ['000003', '权益基金', '权益'],
+      ['000004', '黄金基金', '黄金'],
+      ['000005', '流动性基金', '流动性']
+    ] as const
+    for (const [code, name, category] of inputs) {
+      createFund(db, { code, name, category, fundType: null })
+    }
+
+    expect(
+      selectFunds(db).map((f) => ({
+        code: f.code,
+        category: f.category,
+        ledgerCategory: f.ledgerCategory,
+        productForm: f.productForm,
+        equityRatio: f.equityRatio,
+        equityRatioSource: f.equityRatioSource,
+        equityRatioAsOf: f.equityRatioAsOf
+      }))
+    ).toEqual([
+      { code: '000001', category: '纯债', ledgerCategory: '债', productForm: '纯债', equityRatio: 0, equityRatioSource: 'manual', equityRatioAsOf: null },
+      { code: '000002', category: '固守+', ledgerCategory: '债', productForm: '固收+', equityRatio: 0.2, equityRatioSource: 'manual', equityRatioAsOf: null },
+      { code: '000003', category: '权益', ledgerCategory: '权益', productForm: '权益', equityRatio: 1, equityRatioSource: 'manual', equityRatioAsOf: null },
+      { code: '000004', category: '黄金', ledgerCategory: '黄金', productForm: '黄金', equityRatio: 0, equityRatioSource: 'manual', equityRatioAsOf: null },
+      { code: '000005', category: '流动性', ledgerCategory: '债', productForm: '纯债', equityRatio: 0, equityRatioSource: 'manual', equityRatioAsOf: null }
+    ])
+  })
 })
 
 describe('createTransaction — 四种操作类型入库', () => {

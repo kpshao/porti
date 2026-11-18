@@ -1,17 +1,80 @@
 // 数据访问层：数据库行 ↔ 领域类型（snake_case ↔ camelCase）
 
 import type Database from 'better-sqlite3'
-import type { CategoryTarget, Fund, NavPoint, Transaction, TransactionRow } from '../engine'
+import { resolveLegacyCategory } from '../engine'
+import type { CategoryTarget, ClassifiedFund, NavPoint, Transaction, TransactionRow } from '../engine'
 
-export function selectFunds(db: Database.Database): Fund[] {
+/** 写入完整基金行；创建基金与 Excel 导入共用同一列集合，避免加列时漏改 */
+export function insertFund(db: Database.Database, fund: ClassifiedFund, createdAt: string): void {
+  db.prepare(
+    `INSERT INTO funds
+       (code, name, category, fund_type, ledger_category, product_form, equity_ratio, equity_ratio_source, equity_ratio_as_of, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`
+  ).run(
+    fund.code,
+    fund.name,
+    fund.category,
+    fund.fundType,
+    fund.ledgerCategory,
+    fund.productForm,
+    fund.equityRatio,
+    fund.equityRatioSource,
+    fund.equityRatioAsOf,
+    createdAt
+  )
+}
+
+/** 基金读取：funds 表还没有新模型字段时按旧五类派生，令旧结构与迁移中的库仍可读取 */
+export function selectFunds(db: Database.Database): ClassifiedFund[] {
+  const columns = (db.prepare('PRAGMA table_info(funds)').all() as { name: string }[]).map(
+    (c) => c.name
+  )
+  if (!columns.includes('product_form')) {
+    const rows = db
+      .prepare('SELECT code, name, category, fund_type FROM funds ORDER BY code')
+      .all() as { code: string; name: string; category: string; fund_type: string | null }[]
+    return rows.map((r) => {
+      const legacy = resolveLegacyCategory(r.category)
+      if (legacy === null) {
+        throw new Error(`无法识别的旧大类「${r.category}」（基金 ${r.code}），迁移尚未完成`)
+      }
+      return {
+        code: r.code,
+        name: r.name,
+        category: r.category,
+        fundType: r.fund_type,
+        ...legacy.classification
+      }
+    })
+  }
+
   const rows = db
-    .prepare('SELECT code, name, category, fund_type FROM funds ORDER BY code')
-    .all() as { code: string; name: string; category: string; fund_type: string | null }[]
+    .prepare(
+      `SELECT code, name, category, fund_type, ledger_category, product_form,
+              equity_ratio, equity_ratio_source, equity_ratio_as_of
+       FROM funds ORDER BY code`
+    )
+    .all() as {
+    code: string
+    name: string
+    category: string
+    fund_type: string | null
+    ledger_category: ClassifiedFund['ledgerCategory']
+    product_form: ClassifiedFund['productForm']
+    equity_ratio: number
+    equity_ratio_source: ClassifiedFund['equityRatioSource']
+    equity_ratio_as_of: string | null
+  }[]
   return rows.map((r) => ({
     code: r.code,
     name: r.name,
     category: r.category,
-    fundType: r.fund_type
+    fundType: r.fund_type,
+    ledgerCategory: r.ledger_category,
+    productForm: r.product_form,
+    equityRatio: r.equity_ratio,
+    equityRatioSource: r.equity_ratio_source,
+    equityRatioAsOf: r.equity_ratio_as_of
   }))
 }
 
