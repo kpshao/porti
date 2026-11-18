@@ -10,8 +10,14 @@ function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'porti-schema-migration-'))
 }
 
+/** 把当前 schema 还原成 v4 结构（v5 之前没有配置桶目标表） */
+function toV4Structure(db: Database.Database): void {
+  db.exec('DROP TABLE bucket_targets')
+}
+
 /** 把当前 schema 还原成 v3 结构（v4 之前没有新模型字段） */
 function toV3Structure(db: Database.Database): void {
+  toV4Structure(db)
   for (const col of V4_FUND_COLUMNS) db.exec(`ALTER TABLE funds DROP COLUMN ${col}`)
 }
 
@@ -64,6 +70,22 @@ function seedV3Db(path: string): Database.Database {
   )
   insertTx.run('2026-01-02', '买入', '000005', 1000, 900, 1.1, 0, null, '2026-01-02', '2026-01-02')
   insertTx.run('2026-02-02', '卖出', '000005', -1100, -900, 1.2, 0, null, '2026-02-02', '2026-02-02')
+  return db
+}
+
+/** v4 夹具：v5 结构去掉配置桶目标表，版本标为 4；旧目标表保留（折算来源） */
+function seedV4Db(path: string): Database.Database {
+  const db = new Database(path)
+  db.exec(SCHEMA)
+  toV4Structure(db)
+  db.pragma('user_version = 4')
+  db.prepare(
+    `INSERT INTO funds (code, name, category, fund_type, ledger_category, product_form, equity_ratio, equity_ratio_source, equity_ratio_as_of, created_at)
+     VALUES ('002067', 'v4 保留基金', '固守+', NULL, '债', '固收+', 0.2, 'manual', NULL, '2026-01-01')`
+  ).run()
+  db.prepare(
+    "INSERT INTO category_targets (category, target_ratio) VALUES ('固守+', 0.25), ('纯债', 0.45), ('权益', 0.2), ('黄金', 0.05), ('流动性', 0.05)"
+  ).run()
   return db
 }
 
@@ -300,6 +322,36 @@ describe('migrateDatabase — v3 → v4 基金新模型字段', () => {
     expect(db.prepare("SELECT category FROM funds WHERE code = '000003'").get()).toEqual({
       category: '股票型'
     })
+    db.close()
+  })
+})
+
+describe('migrateDatabase — v4 → v5 配置桶目标表', () => {
+  it('新增空的 bucket_targets 表，保留旧目标与基金数据，不产生备份', () => {
+    const dir = tempDir()
+    const db = seedV4Db(join(dir, 'porti.db'))
+
+    migrateDatabase(db, 4)
+
+    expect(tableNames(db)).toContain('bucket_targets')
+    expect(
+      (db.prepare('SELECT COUNT(*) AS n FROM bucket_targets').get() as { n: number }).n
+    ).toBe(0)
+    // 旧目标保留：首次打开概览时从这里折算三桶目标并请用户确认
+    expect(db.prepare('SELECT COUNT(*) AS n FROM category_targets').get()).toEqual({ n: 5 })
+    expect(db.prepare('SELECT code FROM funds').get()).toEqual({ code: '002067' })
+    expect(backupFiles(dir)).toHaveLength(0)
+    db.close()
+  })
+
+  it('重复迁移幂等：表已存在时不报错也不重复建表', () => {
+    const db = seedV4Db(join(tempDir(), 'porti.db'))
+
+    migrateDatabase(db, 4)
+    expect(() => migrateDatabase(db, 4)).not.toThrow()
+    expect(
+      (db.prepare('SELECT COUNT(*) AS n FROM bucket_targets').get() as { n: number }).n
+    ).toBe(0)
     db.close()
   })
 })

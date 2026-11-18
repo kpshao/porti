@@ -56,6 +56,16 @@ export interface CategoryTarget {
   targetRatio: number
 }
 
+/** 配置桶：配置对比的固定三行，按权益系数穿透后的资产口径（详见 CONTEXT.md「配置桶」） */
+export const ALLOCATION_BUCKETS = ['稳健', '权益', '黄金'] as const
+export type AllocationBucket = (typeof ALLOCATION_BUCKETS)[number]
+
+/** 单个配置桶的目标比例（原始值，不要求合计 100%） */
+export interface BucketTarget {
+  bucket: AllocationBucket
+  targetRatio: number
+}
+
 export interface FundPosition {
   fundCode: string
   name: string

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { FundInput, FundSeriesRange, TransactionInput } from '../engine'
+import type { BucketTarget, FundInput, FundSeriesRange, TransactionInput } from '../engine'
 import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../importer/types'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from '../main/navTypes'
 import type { MigrationMeta } from '../main/migrationService'
@@ -37,8 +37,8 @@ const api = {
   navPut: (input: NavInput): Promise<void> => ipcRenderer.invoke('nav:put', input),
   navFetchStatus: (): Promise<FetchStatus> => ipcRenderer.invoke('nav:fetch-status'),
   overviewData: (): Promise<OverviewData> => ipcRenderer.invoke('overview:data'),
-  targetUpdateCategory: (category: string, targetRatio: number): Promise<void> =>
-    ipcRenderer.invoke('target:update-category', category, targetRatio),
+  targetSaveBuckets: (targets: BucketTarget[]): Promise<void> =>
+    ipcRenderer.invoke('target:save-buckets', targets),
   statsData: (): Promise<StatsData> => ipcRenderer.invoke('stats:data'),
   analysisData: (): Promise<AnalysisData> => ipcRenderer.invoke('analysis:data'),
   aiConfigGet: (): Promise<AiConfigView> => ipcRenderer.invoke('ai:config:get'),

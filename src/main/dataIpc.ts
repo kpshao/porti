@@ -4,8 +4,8 @@ import { existsSync } from 'fs'
 import { dirname } from 'path'
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import {
+  computeAllocationComparison,
   computeAnnualizedReturns,
-  computeCategoryComparison,
   computeConcentrationMetrics,
   computeFundSeries,
   computePositions,
@@ -20,6 +20,7 @@ import {
   latestNavDate
 } from '../engine'
 import type {
+  BucketTarget,
   FundInput,
   FundPosition,
   FundSeriesRange,
@@ -37,13 +38,13 @@ import { getDb, swapDatabase } from './db'
 import { buildExportData, writeExportCsvs, writeExportExcel } from './exportService'
 import { createMigrationBundle, uniqueBackupPath, validateMigrationBundle } from './migrationService'
 import type { MigrationMeta } from './migrationService'
-import { hasAnyData, selectCategoryTargets, selectFunds, selectNavPoints, selectTransactions } from './repo'
+import { hasAnyData, selectFunds, selectNavPoints, selectTransactions } from './repo'
 import { SCHEMA_VERSION } from './schema'
 import { loadSettings, saveDbPath, saveMigrationPromptDismissed } from './settingsStore'
 import { createFund, createTransaction, deleteTransaction, updateTransaction } from './transactionService'
 import { getFetchStatus, runNavFetch, upsertManualNav } from './navService'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from './navTypes'
-import { updateCategoryTarget } from './targetService'
+import { loadBucketTargets, saveBucketTargets } from './targetService'
 import type { OverviewData } from './overviewTypes'
 import type { StatsData } from './statsTypes'
 import type { FundDetailData } from './fundDetailTypes'
@@ -129,7 +130,7 @@ export function registerDataIpc(): void {
   // 启动自动抓取的最近状态（成功静默更新、失败不阻塞启动）
   ipcMain.handle('nav:fetch-status', (): FetchStatus => getFetchStatus())
 
-  // ---------- 概览页：卡片/持仓明细/大类对比 + 目标编辑 ----------
+  // ---------- 概览页：卡片/持仓明细/三桶配置对比 + 目标编辑 ----------
 
   ipcMain.handle('overview:data', (): OverviewData => {
     const db = getDb()
@@ -139,14 +140,16 @@ export function registerDataIpc(): void {
         positionGroups: [],
         closedGroup: null,
         summary: null,
-        comparison: []
+        comparison: computeAllocationComparison([], [], []),
+        targetConversionPending: false
       }
     }
     const funds = selectFunds(db)
     const transactions = selectTransactions(db)
     const navPoints = selectNavPoints(db)
     const positions = computePositions(funds, transactions, navPoints)
-    const comparison = computeCategoryComparison(positions, selectCategoryTargets(db))
+    const { targets, targetConversionPending } = loadBucketTargets(db)
+    const comparison = computeAllocationComparison(positions, funds, targets)
     // 每次请求只取一次「今天」：汇总年化与大类年化收益率用同一个期末估值日，避免跨午夜不一致
     const today = todayString()
     return {
@@ -154,12 +157,13 @@ export function registerDataIpc(): void {
       positionGroups: groupPositionsByCategory(positions, transactions, today),
       closedGroup: groupClosedPositions(positions),
       summary: computeSummaryData(positions, transactions, navPoints, today),
-      comparison
+      comparison,
+      targetConversionPending
     }
   })
 
-  ipcMain.handle('target:update-category', (_event, category: string, targetRatio: number): void => {
-    updateCategoryTarget(getDb(), category, targetRatio)
+  ipcMain.handle('target:save-buckets', (_event, targets: BucketTarget[]): void => {
+    saveBucketTargets(getDb(), targets)
   })
 
   // ---------- 收益统计页：时间序列（总资产/累计收益/周收益）+ 单基金盈亏排序 ----------

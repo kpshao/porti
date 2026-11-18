@@ -1,5 +1,6 @@
 export * from './types'
 export * from './classification'
+export * from './allocation'
 export * from './compute'
 export * from './reconstruct'
 export * from './validation'

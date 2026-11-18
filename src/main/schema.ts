@@ -5,11 +5,12 @@ import {
   LEDGER_CATEGORIES,
   PRODUCT_FORMS
 } from '../engine/classification'
+import { ALLOCATION_BUCKETS } from '../engine/types'
 
 /** 当前 schema 版本（PRAGMA user_version）；版本间迁移见 schemaMigration.ts */
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
-/** SQL IN 列表；新字段的值域唯一来源是 engine/classification.ts */
+/** SQL IN 列表；字段值域唯一来源是 engine（classification.ts 与 types.ts） */
 const sqlIn = (values: readonly string[]): string => values.map((v) => `'${v}'`).join(',')
 
 /** 新模型字段的 CHECK 条件（新库建表与旧库 ALTER 共用，避免两处值域分叉） */
@@ -19,6 +20,14 @@ export const FUND_MODEL_CHECKS = {
   equityRatio: 'equity_ratio >= 0 AND equity_ratio <= 1',
   equityRatioSource: `equity_ratio_source IN (${sqlIn(EQUITY_RATIO_SOURCES)})`
 } as const
+
+/** v5 新增：配置桶目标表（稳健 / 权益 / 黄金）；初始化语义见 targetService.loadBucketTargets */
+export const BUCKET_TARGETS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS bucket_targets (
+  bucket TEXT PRIMARY KEY CHECK (bucket IN (${sqlIn(ALLOCATION_BUCKETS)})),
+  target_ratio REAL NOT NULL CHECK (target_ratio >= 0 AND target_ratio <= 1)
+);
+`
 
 /**
  * v3 新增：单线程 AI 对话消息表。
@@ -56,6 +65,8 @@ CREATE TABLE IF NOT EXISTS category_targets (
   category TEXT PRIMARY KEY,      -- 固守+ / 纯债 / 权益 / 黄金 / 流动性
   target_ratio REAL NOT NULL      -- 目标比例，如 0.25
 );
+
+${BUCKET_TARGETS_TABLE_SQL}
 
 CREATE TABLE IF NOT EXISTS transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

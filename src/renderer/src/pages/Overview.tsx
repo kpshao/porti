@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CLOSED_CATEGORY } from '../../../engine'
+import type { AllocationBucket, BucketTarget } from '../../../engine'
 import type { OverviewData } from '../../../main/overviewTypes'
 import FundDetail from '../components/FundDetail'
 import SummaryCards from '../components/SummaryCards'
@@ -8,8 +9,8 @@ import { formatMoney, formatNav, formatPercent, formatShares } from '../utils/fo
 import { ipcErrorMessage } from '../utils/ipc'
 import { pnlClass } from '../utils/pnl'
 
-/** 行内编辑暂存值：键为大类名（目标比例） */
-type Edits = Record<string, string>
+/** 行内编辑暂存值：键为配置桶名（目标比例） */
+type Edits = Partial<Record<AllocationBucket, string>>
 
 /** 目标比例输入以百分比显示与录入（界面约定：比例保留 2 位） */
 function ratioToPercentText(ratio: number): string {
@@ -77,33 +78,50 @@ export default function Overview(): React.JSX.Element {
   const heldGroups = data?.positionGroups ?? []
   const groupsToShow = showClosed && closedGroup !== null ? [...heldGroups, closedGroup] : heldGroups
 
-  /** 提交目标比例（百分比录入）：非数字本地回退，范围校验由服务层把关 */
-  const commitTargetRatio = (category: string): void => {
-    const raw = ratioEdits[category]
-    if (raw === undefined || data === null) return
-    const original = data.comparison.find((r) => r.category === category)?.targetRatio ?? 0
-    const revert = (): void => setRatioEdits((prev) => ({ ...prev, [category]: ratioToPercentText(original) }))
-    const n = Number(raw.trim())
-    if (!Number.isFinite(n)) {
-      setError('目标比例需为百分比数字（0–100）')
-      revert()
-      return
+  /** 保存三桶目标（百分比录入）：非数字本地回退，范围与完整性由服务层把关。
+   *  allowUnchanged = true 供「接受折算结果」使用——即使数值未改也要落库，让确认提示消失。 */
+  const persistTargets = (allowUnchanged: boolean): void => {
+    if (data === null) return
+    const rows = data.comparison.rows
+    const payload: BucketTarget[] = []
+    for (const row of rows) {
+      const raw = ratioEdits[row.bucket] ?? ratioToPercentText(row.targetRatio)
+      const n = Number(raw.trim())
+      if (!Number.isFinite(n)) {
+        setError('目标比例需为百分比数字（0–100）')
+        setRatioEdits({})
+        return
+      }
+      payload.push({ bucket: row.bucket, targetRatio: n / 100 })
     }
-    const next = n / 100
-    if (Math.abs(next - original) < 1e-9) {
-      revert()
-      return
+    if (!allowUnchanged) {
+      const changed = payload.some((t) => {
+        const original = rows.find((r) => r.bucket === t.bucket)?.targetRatio ?? 0
+        return Math.abs(t.targetRatio - original) >= 1e-9
+      })
+      if (!changed) {
+        setRatioEdits({})
+        return
+      }
     }
     setBusy(true)
     window.api
-      .targetUpdateCategory(category, next)
-      .then(reload)
+      .targetSaveBuckets(payload)
+      .then(() => {
+        setRatioEdits({})
+        reload()
+      })
       .catch((e) => {
         setError(ipcErrorMessage(e))
-        revert()
+        setRatioEdits({})
       })
       .finally(() => setBusy(false))
   }
+
+  /** 行内编辑提交：数值没变就不写库 */
+  const saveEditedTargets = (): void => persistTargets(false)
+  /** 接受旧目标折算结果：目标表尚未初始化，数值「没变」也必须落库 */
+  const acceptConvertedTargets = (): void => persistTargets(true)
 
   return (
     <section className="page">
@@ -207,12 +225,35 @@ export default function Overview(): React.JSX.Element {
       )}
 
       {hasData && (
-        <div className="card">
-          <h2>大类配置对比</h2>
+        <div className="card card-allocation">
+          <h2>配置对比</h2>
+          {data.targetConversionPending && (
+            <div className="banner banner-info allocation-conversion">
+              <p>
+                旧的大类目标已折算为三个配置桶：
+                {data.comparison.rows
+                  .map((r) => `${r.bucket} ${formatPercent(r.targetRatio)}`)
+                  .join(' / ')}
+                。确认后作为新的配置基准，也可以在下方逐行调整。
+              </p>
+              <button
+                className="btn btn-compact btn-primary allocation-conversion-confirm"
+                onClick={acceptConvertedTargets}
+                disabled={busy}
+              >
+                接受折算结果
+              </button>
+            </div>
+          )}
+          {data.comparison.targetNormalized && (
+            <div className="banner banner-info allocation-target-warning">
+              {`目标合计 ${formatPercent(data.comparison.targetTotal)}，不等于 100%；偏离按归一化目标计算。`}
+            </div>
+          )}
           <table className="table">
             <thead>
               <tr>
-                <th>大类</th>
+                <th>配置桶</th>
                 <th>目标比例（%）</th>
                 <th>实际投入比例</th>
                 <th>实际市值占比</th>
@@ -220,14 +261,14 @@ export default function Overview(): React.JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {data.comparison.map((r) => {
-                const editValue = ratioEdits[r.category]
+              {data.comparison.rows.map((r) => {
+                const editValue = ratioEdits[r.bucket]
                 const inputValue = editValue !== undefined ? editValue : ratioToPercentText(r.targetRatio)
                 const dev = r.deviation ?? 0
                 const devClass = dev > 1e-9 ? 'positive' : dev < -1e-9 ? 'negative' : ''
                 return (
-                  <tr key={r.category}>
-                    <td>{r.category}</td>
+                  <tr key={r.bucket}>
+                    <td>{r.bucket}</td>
                     <td>
                       <InlineNumberEdit
                         value={inputValue}
@@ -235,10 +276,8 @@ export default function Overview(): React.JSX.Element {
                         step="0.01"
                         min="0"
                         max="100"
-                        onChange={(text) =>
-                          setRatioEdits((prev) => ({ ...prev, [r.category]: text }))
-                        }
-                        onCommit={() => commitTargetRatio(r.category)}
+                        onChange={(text) => setRatioEdits((prev) => ({ ...prev, [r.bucket]: text }))}
+                        onCommit={saveEditedTargets}
                       />
                     </td>
                     <td>{formatPercent(r.investedRatio)}</td>
@@ -253,7 +292,12 @@ export default function Overview(): React.JSX.Element {
             </tbody>
           </table>
           <p className="muted">
-            目标比例可直接修改（百分比，0–100），失焦或回车后保存并实时重算偏离；红色表示超配、绿色表示低配。
+            {`权益构成：直接权益 ${formatPercent(data.comparison.equityComposition.direct)} + 债类穿透 ${formatPercent(data.comparison.equityComposition.debtPassthrough)}（按每只基金的权益系数穿透）。`}
+            {data.comparison.missingNavCount > 0
+              ? `有 ${data.comparison.missingNavCount} 只在持基金缺最新净值，市值按 0 计入；请到「净值管理」补录。`
+              : ''}
+            <br />
+            目标比例可直接修改（百分比，0–100），失焦或回车后保存并实时重算偏离；合计不等于 100% 时只警告，偏离按归一化目标计算；红色表示超配、绿色表示低配。
           </p>
         </div>
       )}

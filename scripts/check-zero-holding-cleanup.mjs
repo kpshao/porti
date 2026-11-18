@@ -5,7 +5,7 @@
 //
 // 流程：npm run build -> 复制真实 porti.db 到临时 profile -> 启动 Electron -> CDP 断言
 // 概览页的清仓行为：已清仓基金默认不占行、开关能找回且仍在表尾单独一组、点得进基金详情；
-// 已清空大类的「实际投入比例」记 0、「偏离」显示「—」。断言口径见
+// 配置对比的三桶比例只统计在持基金（已清仓残留的净投入不进分子分母）。断言口径见
 // .scratch/return-breakdown/spec.md 与 issues/02-zero-holding-cleanup.md。
 //
 // 独立事实来源：系统 sqlite3 直读库，算出「谁交易过、谁还有份额、哪个大类已清空」，
@@ -233,15 +233,15 @@ const READ_POSITIONS = `(() => {
   }
 })()`
 
-/** 读大类配置对比表：大类 -> { 投入比例, 偏离 } */
+/** 读配置对比表：配置桶 -> { 投入比例, 市值占比, 偏离 } */
 const READ_COMPARISON = `(() => {
   const card = [...document.querySelectorAll('.card')].find(
-    (c) => c.querySelector('h2')?.textContent === '大类配置对比'
+    (c) => c.querySelector('h2')?.textContent === '配置对比'
   )
   if (!card) return { error: 'no-card' }
   return {
     rows: [...card.querySelectorAll('tbody tr')].map((tr) => ({
-      category: tr.children[0]?.textContent?.trim() ?? '',
+      bucket: tr.children[0]?.textContent?.trim() ?? '',
       investedRatio: tr.children[2]?.textContent?.trim() ?? '',
       marketRatio: tr.children[3]?.textContent?.trim() ?? '',
       deviation: tr.children[4]?.textContent?.trim() ?? ''
@@ -372,47 +372,102 @@ if (closedFunds.length === 0) {
   check(closedAfter === true, 'Esc 可关闭基金详情')
 }
 
-// ---- 8. 大类配置对比：清空的大类不再凭空占比例 -----------------------------
+// ---- 8. 配置对比：已清仓基金不参与当前比例 -----------------------------
+/** 独立事实来源：账本大类、权益系数、净投入与份额（升级后的结构；失败返回 null） */
+function readBucketFacts() {
+  const q = spawnSync('sqlite3', [
+    dbPath,
+    `SELECT f.code, f.ledger_category, f.equity_ratio,
+            (SELECT COALESCE(SUM(CASE WHEN t.type IN ('买入','卖出') THEN t.amount ELSE 0 END), 0)
+               FROM transactions t WHERE t.fund_code = f.code),
+            (SELECT COALESCE(SUM(t.shares), 0) FROM transactions t WHERE t.fund_code = f.code)
+     FROM funds f`
+  ])
+  if (q.status !== 0) return null
+  const rows = []
+  for (const line of q.stdout.toString().split('\n')) {
+    if (line.trim() === '') continue
+    const [code, ledger, ratio, netCost, shares] = line.split('|')
+    rows.push({
+      code: code.trim(),
+      ledger: (ledger ?? '').trim(),
+      equityRatio: Number(ratio),
+      netCost: Number(netCost),
+      shares: Number(shares)
+    })
+  }
+  return rows
+}
+
+/** 按三桶口径独立重算实际投入比例（%）：只统计在持基金，已清仓不进分子分母 */
+function expectedBucketInvested(facts) {
+  const held = facts.filter((f) => f.shares > 0)
+  const total = held.reduce((s, f) => s + f.netCost, 0)
+  if (total === 0) return null
+  const buckets = { 稳健: 0, 权益: 0, 黄金: 0 }
+  for (const f of held) {
+    const equity = f.netCost * f.equityRatio
+    if (f.ledger === '黄金') {
+      buckets['权益'] += equity
+      buckets['黄金'] += f.netCost - equity
+    } else {
+      buckets['稳健'] += f.netCost - equity
+      buckets['权益'] += equity
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(buckets).map(([bucket, value]) => [bucket, (value / total) * 100])
+  )
+}
+
 const comparison = await evalJs(READ_COMPARISON)
 if (comparison.error) {
-  check(false, '找得到大类配置对比表', comparison.error)
+  check(false, '找得到配置对比表', comparison.error)
 } else {
-  const cmp = new Map(comparison.rows.map((r) => [r.category, r]))
-  const badRatio = []
-  const badDeviation = []
-  for (const cat of clearedCats) {
-    const row = cmp.get(cat)
-    if (!row) {
-      badRatio.push(`「${cat}」缺行`)
-      continue
-    }
-    if (num(row.investedRatio) !== 0) badRatio.push(`「${cat}」实际投入比例 ${row.investedRatio}`)
-    if (row.deviation !== '—') badDeviation.push(`「${cat}」偏离 ${row.deviation}`)
-  }
+  const BUCKETS = ['稳健', '权益', '黄金']
   check(
-    badRatio.length === 0,
-    clearedCats.length > 0 ? '已清空大类的「实际投入比例」记 0' : '（无已清空大类，跳过）',
-    badRatio.join('; ')
+    JSON.stringify(comparison.rows.map((r) => r.bucket)) === JSON.stringify(BUCKETS),
+    '配置对比固定三行（稳健 / 权益 / 黄金）',
+    comparison.rows.map((r) => r.bucket).join(' → ')
   )
-  check(
-    badDeviation.length === 0,
-    clearedCats.length > 0 ? '已清空大类的「偏离」显示「—」' : '（无已清空大类，跳过）',
-    badDeviation.join('; ')
-  )
-  const heldBad = comparison.rows
-    .filter((r) => heldCats.has(r.category))
-    .filter((r) => r.deviation === '—')
-  check(heldBad.length === 0, '仍有市值的大类偏离仍是数字（不是「—」）', heldBad.map((r) => r.category).join(', '))
 
-  // 交叉验证分母：已清空大类在表里记 0，且在持大类的投入比例总和为 100%
-  const heldRatioSum = comparison.rows
-    .filter((r) => heldCats.has(r.category))
-    .reduce((s, r) => s + (num(r.investedRatio) ?? 0), 0)
-  check(Math.abs(heldRatioSum - 100) < 0.05, '在持大类的投入比例合计 = 100%', `${heldRatioSum.toFixed(2)}%`)
-  for (const r of comparison.rows) {
-    console.log(
-      `  「${r.category}」投入 ${r.investedRatio} / 市值 ${r.marketRatio} / 偏离 ${r.deviation}`
+  const bucketFacts = readBucketFacts()
+  const expected = bucketFacts === null ? null : expectedBucketInvested(bucketFacts)
+  if (expected === null) {
+    console.log('  提示：无法从库内独立重算三桶投入比例，跳过比例交叉验证')
+  } else {
+    const mismatches = []
+    for (const r of comparison.rows) {
+      const shown = num(r.investedRatio)
+      const want = expected[r.bucket]
+      if (shown === null || Math.abs(shown - want) > 0.02) {
+        mismatches.push(`「${r.bucket}」显示 ${r.investedRatio} vs 库内 ${want.toFixed(2)}%`)
+      }
+    }
+    check(
+      mismatches.length === 0,
+      '三桶实际投入比例 = 库内在持基金按权益系数独立重算（已清仓不参与）',
+      mismatches.join('; ')
     )
+    if (closedFunds.length > 0) {
+      console.log(`  已清仓 ${closedFunds.length} 只：重算时已排除，若实现把清仓残留计入比例会在此失败`)
+    }
+  }
+
+  const marketVals = comparison.rows.map((r) => num(r.marketRatio))
+  if (marketVals.every((v) => v === null)) {
+    check(true, '全部在持基金缺净值：三桶市值占比显示「—」（跳过合计）')
+  } else {
+    const sum = marketVals.reduce((s, v) => s + (v ?? 0), 0)
+    check(Math.abs(sum - 100) < 0.05, '三桶实际市值占比合计 = 100%', `${sum.toFixed(2)}%`)
+  }
+  const investedVals = comparison.rows.map((r) => num(r.investedRatio)).filter((v) => v !== null)
+  if (investedVals.length === 3) {
+    const sum = investedVals.reduce((s, v) => s + v, 0)
+    check(Math.abs(sum - 100) < 0.05, '三桶实际投入比例合计 = 100%', `${sum.toFixed(2)}%`)
+  }
+  for (const r of comparison.rows) {
+    console.log(`  「${r.bucket}」投入 ${r.investedRatio} / 市值 ${r.marketRatio} / 偏离 ${r.deviation}`)
   }
 }
 
