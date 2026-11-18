@@ -19,6 +19,7 @@ import type {
   XirrCashFlow
 } from './types'
 import { CATEGORIES } from './validation'
+import { PRODUCT_FORMS, deriveProductForm } from './classification'
 
 const NEVER = '9999-12-31'
 
@@ -178,6 +179,7 @@ export function computePositions(
       fundCode: fund.code,
       name: fund.name,
       category: fund.category,
+      productForm: deriveProductForm(fund.category, fund.productForm),
       fundType: fund.fundType,
       invested,
       redeemed,
@@ -258,12 +260,12 @@ export function computeTotals(positions: FundPosition[], transactions: Transacti
   }
 }
 
-/** 兜底组名：category 不在 CATEGORIES 内的持仓（脏值、空串）归入此组，恒定排在五类之后 */
-export const OTHER_CATEGORY = '其他'
+/** 兜底组名：产品形态缺失或不在 PRODUCT_FORMS 内的持仓（脏值、无法识别的旧类别）归入此组，恒定排在四组之后 */
+export const OTHER_GROUP = '其他'
 
-/** 是否为标准资产大类（CATEGORIES 闭集） */
-function isCategory(value: string): boolean {
-  return (CATEGORIES as readonly string[]).includes(value)
+/** 是否为标准产品形态（PRODUCT_FORMS 闭集） */
+function isProductForm(value: string): boolean {
+  return (PRODUCT_FORMS as readonly string[]).includes(value)
 }
 
 /** 基金代码升序：代码是主键、不并列，故无需 tie-break。
@@ -278,13 +280,13 @@ function groupMarketValue(rows: FundPosition[]): number | null {
   return rows.reduce((sum, p) => sum + (p.marketValue ?? 0), 0)
 }
 
-/** 组内所有在持持仓的市值都已知：大类指标的共享守卫——任一市值未知时两项皆空，
+/** 组内所有在持持仓的市值都已知：组级指标的共享守卫——任一市值未知时两项皆空，
  *  不展示残缺汇总（与逐基金列「有成本、无净值 → —」一致）。 */
 function allMarketValuesKnown(rows: FundPosition[]): boolean {
   return rows.every((p) => p.marketValue !== null)
 }
 
-/** 大类盈亏比例 = Σ持仓盈亏 ÷ Σ持仓成本（仅组内在持持仓，与逐基金「盈亏比例」同一公式）。
+/** 组级盈亏比例 = Σ持仓盈亏 ÷ Σ持仓成本（仅组内在持持仓，与逐基金「盈亏比例」同一公式）。
  *  组内任一持仓市值未知 → null（见 allMarketValuesKnown）；持仓成本合计 ≤ 0 → null（比例无定义）。 */
 function groupPnlRatio(rows: FundPosition[]): number | null {
   if (!allMarketValuesKnown(rows)) return null
@@ -297,8 +299,8 @@ function groupPnlRatio(rows: FundPosition[]): number | null {
   return costBasis <= 0 ? null : pnl / costBasis
 }
 
-/** 大类年化收益率（XIRR）：现金流取组内基金代码集合的全部流水（含清仓重建前的历史），
- *  期末估值 = 组内当前市值之和；组内任一市值未知 → null（与大类盈亏比例同一守卫）。 */
+/** 组级年化收益率（XIRR）：现金流取组内基金代码集合的全部流水（含清仓重建前的历史），
+ *  期末估值 = 组内当前市值之和；组内任一市值未知 → null（与组级盈亏比例同一守卫）。 */
 function groupAnnualized(
   rows: FundPosition[],
   transactions: Transaction[],
@@ -312,17 +314,18 @@ function groupAnnualized(
 }
 
 /** 是否在持：份额 > 0 才算是一个仓位。份额 ≤ 0 的是已清仓（归零）或超卖（负份额数据错误），
- *  两者都不该出现在按大类分的持仓里，也不该参与投入比例。 */
+ *  两者都不该出现在按产品形态分的持仓里，也不该参与投入比例。 */
 export function isHeld(p: FundPosition): boolean {
   return p.shares > 0
 }
 
-/** 持仓明细的大类分组（概览页表格的组织方式）。规则：
- *  只纳入在持持仓（见 isHeld），过滤后为空的大类不产生组；
+/** 持仓明细的产品形态分组（概览页表格的组织方式）。规则：
+ *  只纳入在持持仓（见 isHeld），过滤后为空的产品形态不产生组；
  *  已清仓持仓不在此，由 groupClosedPositions 收成表尾一组；
- *  组序按 CATEGORIES 声明顺序，兜底组「其他」恒定置底；组内按基金代码升序（见 byFundCode）。
- *  大类指标只统计组内在持持仓；组内任一市值未知时大类盈亏比例与大类年化收益率两项皆空。 */
-export function groupPositionsByCategory(
+ *  组序按 PRODUCT_FORMS 声明顺序，兜底组「其他」恒定置底；组内按基金代码升序（见 byFundCode）。
+ *  组级指标只统计组内在持持仓、不做权益穿透（穿透只属于配置对比）；
+ *  组内任一市值未知时组级盈亏比例与组级年化收益率两项皆空。 */
+export function groupPositionsByProductForm(
   positions: FundPosition[],
   transactions: Transaction[],
   today: string
@@ -330,18 +333,18 @@ export function groupPositionsByCategory(
   const buckets = new Map<string, FundPosition[]>()
   for (const p of positions) {
     if (!isHeld(p)) continue
-    const key = isCategory(p.category) ? p.category : OTHER_CATEGORY
+    const key = p.productForm !== null && isProductForm(p.productForm) ? p.productForm : OTHER_GROUP
     const bucket = buckets.get(key)
     if (bucket === undefined) buckets.set(key, [p])
     else bucket.push(p)
   }
   const groups: PositionGroup[] = []
-  for (const category of [...CATEGORIES, OTHER_CATEGORY]) {
-    const rows = buckets.get(category)
+  for (const form of [...PRODUCT_FORMS, OTHER_GROUP]) {
+    const rows = buckets.get(form)
     if (rows === undefined) continue
     rows.sort(byFundCode)
     groups.push({
-      category,
+      name: form,
       marketValue: groupMarketValue(rows),
       pnlRatio: groupPnlRatio(rows),
       annualized: groupAnnualized(rows, transactions, today),
@@ -351,8 +354,8 @@ export function groupPositionsByCategory(
   return groups
 }
 
-/** 已清仓组名：不是资产大类，只作持仓明细表尾分组的显示名（基金详情入口靠这些行保留） */
-export const CLOSED_CATEGORY = '已清仓'
+/** 已清仓组名：不是产品形态组，只作持仓明细表尾分组的显示名（基金详情入口靠这些行保留） */
+export const CLOSED_GROUP = '已清仓'
 
 /** 是否交易过（买入或赎回过）：份额为 0 的两种情形靠它区分——
  *  交易过 = 已清仓（战绩与历史值得回顾）；从无流水 = 从未建仓（不冒充已清仓）。 */
@@ -367,12 +370,12 @@ export function isClosed(p: FundPosition): boolean {
 
 /** 已清仓持仓（交易过、现份额 ≤ 0）合成表尾单独一组；无此类持仓时为 null。
  *  组头市值恒为 null（份额 ≤ 0 时市值恒为 0 或未知，没有可合计的口径）；组内按基金代码升序。
- *  与 groupPositionsByCategory 互补：两者并集 = 有过流水的持仓、交集为空（从未建仓的两边都不在）。 */
+ *  与 groupPositionsByProductForm 互补：两者并集 = 有过流水的持仓、交集为空（从未建仓的两边都不在）。 */
 export function groupClosedPositions(positions: FundPosition[]): PositionGroup | null {
   const rows = positions.filter(isClosed).sort(byFundCode)
   if (rows.length === 0) return null
-  // 已清仓组不是资产大类，没有大类收益指标：两项恒为空
-  return { category: CLOSED_CATEGORY, marketValue: null, pnlRatio: null, annualized: null, positions: rows }
+  // 已清仓组不是产品形态组，没有组级收益指标：两项恒为空
+  return { name: CLOSED_GROUP, marketValue: null, pnlRatio: null, annualized: null, positions: rows }
 }
 
 /** 大类配置对比：目标比例 / 实际投入比例 / 实际市值占比 / 偏离。
@@ -622,9 +625,9 @@ function cashFlowOf(t: Transaction): { flow: XirrCashFlow | null; netCostDelta: 
   return { flow: null, netCostDelta: 0 }
 }
 
-/** 共享年化求根入口（整体年化与大类年化收益率共用，现金流归一化与守卫公式只此一处）：
+/** 共享年化求根入口（整体年化与组级年化收益率共用，现金流归一化与守卫公式只此一处）：
  *  流水 → 归一化现金流与净投入；无流水、首笔流水（任意类型）不足 30 天、净投入 ≤ 0 → null；
- *  否则以调用方给定的期末估值求 XIRR。期末估值按统计范围求和（整体 = 全部在持市值；大类 = 组内在持市值）。 */
+ *  否则以调用方给定的期末估值求 XIRR。期末估值按统计范围求和（整体 = 全部在持市值；组级 = 组内在持市值）。 */
 function annualizedReturn(
   transactions: Transaction[],
   terminalValue: number,

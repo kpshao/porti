@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CLOSED_CATEGORY } from '../../../engine'
+import { CLOSED_GROUP } from '../../../engine'
 import type { AllocationBucket, BucketTarget } from '../../../engine'
 import type { OverviewData } from '../../../main/overviewTypes'
 import FundDetail from '../components/FundDetail'
@@ -154,8 +154,8 @@ export default function Overview(): React.JSX.Element {
               <table className="table table-positions">
                 <thead>
                   <tr>
-                    <th>大类</th>
-                    <th>大类汇总</th>
+                    <th>形态</th>
+                    <th>形态汇总</th>
                     <th>代码</th>
                     <th>名称</th>
                     <th>份额</th>
@@ -167,9 +167,9 @@ export default function Overview(): React.JSX.Element {
                     <th>年化收益率</th>
                   </tr>
                 </thead>
-                {/* 每个大类一个 tbody：首两列（大类 / 大类汇总）只在组内第一行渲染并 rowSpan 合并到整组 */}
+                {/* 每个产品形态一个 tbody：首两列（形态 / 形态汇总）只在组内第一行渲染并 rowSpan 合并到整组 */}
                 {groupsToShow.map((group) => (
-                  <tbody key={group.category}>
+                  <tbody key={group.name}>
                     {group.positions.map((p, rowIndex) => {
                       const annualized = data.summary?.perFundAnnualized[p.fundCode] ?? null
                       return (
@@ -177,12 +177,12 @@ export default function Overview(): React.JSX.Element {
                           {rowIndex === 0 && (
                             <>
                               <td className="group-cell" rowSpan={group.positions.length}>
-                                {group.category}
+                                {group.name}
                               </td>
                               <td className="group-cell" rowSpan={group.positions.length}>
                                 <div className="group-summary-main">{formatMoney(group.marketValue)}</div>
-                                {/* 已清仓组不是资产大类：只显示一个「—」，不渲染两条大类指标 */}
-                                {group.category !== CLOSED_CATEGORY && (
+                                {/* 已清仓组不是产品形态组：只显示一个「—」，不渲染两条组级指标 */}
+                                {group.name !== CLOSED_GROUP && (
                                   <>
                                     <GroupMetricRow label="盈亏比例" value={group.pnlRatio} />
                                     <GroupMetricRow label="年化收益率" value={group.annualized} />
@@ -216,8 +216,8 @@ export default function Overview(): React.JSX.Element {
             </div>
           )}
           <p className="muted">
-            点击基金名称可查看基金详情与收益走势。
-            {`大类汇总：大类盈亏比例 = 组内持仓盈亏合计 ÷ 持仓成本合计（不含卖出/分红的已实现盈亏）；大类年化收益率 = 组内在持基金的 XIRR。${MERGED_BUY_HINT}，使大类年化收益率偏低。`}
+            按产品形态分组，点击基金名称可查看基金详情与收益走势。
+            {`组级盈亏比例 = 组内持仓盈亏合计 ÷ 持仓成本合计（不含卖出/分红的已实现盈亏）；组级年化收益率 = 组内在持基金的 XIRR。${MERGED_BUY_HINT}，使组级年化收益率偏低。`}
             {closedGroup !== null &&
               '已清仓基金（交易过后份额归零）默认不显示——它们是数据不是仓位，需要回顾战绩时用上方开关找回。'}
           </p>

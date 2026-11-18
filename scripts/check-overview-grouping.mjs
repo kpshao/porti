@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// 概览持仓明细「按大类分组」端到端检查（零依赖：Node >= 22 全局 WebSocket/fetch + 系统 sqlite3）
+// 概览持仓明细「按产品形态分组」端到端检查（零依赖：Node >= 22 全局 WebSocket/fetch + 系统 sqlite3）
 //
 // 用法：node scripts/check-overview-grouping.mjs [--port 9333]
 //
 // 流程：npm run build -> 复制真实 porti.db 到临时 profile -> 启动 Electron -> CDP 断言
-// 概览持仓明细表的分组。断言口径见 .scratch/overview-group-by-category/spec.md。
+// 概览持仓明细表按产品形态分组（issue #27，断言口径见该 issue；最早的 spec 归档于
+// .scratch/overview-group-by-category/spec.md）。
 // 同一次启动顺带验证真实库副本 v1 → v2 升级（删 target_amount 列 + 生成 .bak 备份）。
 //
 // 退出码：0 = 通过（含 SKIP：无持仓数据）；1 = RED。
@@ -20,9 +21,9 @@ const ROOT = resolve(import.meta.dirname, '..')
 const PORT = process.argv.includes('--port') ? process.argv[process.argv.indexOf('--port') + 1] : '9333'
 const CDP = `http://127.0.0.1:${PORT}`
 
-/** 与 src/engine/validation.ts 的 CATEGORIES 保持一致（消费方按此声明顺序排序） */
-const CATEGORIES = ['固守+', '纯债', '权益', '黄金', '流动性']
-/** 与 src/engine/compute.ts 的 OTHER_CATEGORY 保持一致 */
+/** 与 src/engine/classification.ts 的 PRODUCT_FORMS 保持一致（消费方按此声明顺序排序） */
+const PRODUCT_FORMS = ['固收+', '纯债', '权益', '黄金']
+/** 与 src/engine/compute.ts 的 OTHER_GROUP 保持一致 */
 const OTHER = '其他'
 
 const ELECTRON_BIN =
@@ -45,8 +46,8 @@ function money(text) {
 /** 舍入容差：每个显示值最多偏 0.005，两端各留一份 */
 const tol = (n) => 0.01 * n + 0.01
 
-/** 库里的大类 -> 表格中的组名（闭集之外归入「其他」） */
-const groupNameOf = (category) => (CATEGORIES.includes(category) ? category : OTHER)
+/** 库里的产品形态 -> 表格中的组名（闭集之外归入「其他」） */
+const groupNameOf = (productForm) => (PRODUCT_FORMS.includes(productForm) ? productForm : OTHER)
 
 // ---- 1. 构建 ------------------------------------------------------------
 const build = spawnSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'inherit' })
@@ -74,18 +75,37 @@ const sourceVersion = existsSync(dbPath)
   ? Number(spawnSync('sqlite3', [dbPath, 'PRAGMA user_version']).stdout.toString().trim())
   : null
 
-// 独立事实来源：直接从库读 Fund.code -> category，用于交叉验证行落在正确的组里
-const fundCategory = new Map()
+// 独立事实来源：直接从库读 Fund.code -> product_form，用于交叉验证行落在正确的组里。
+// 旧库（v3 及以前）还没有 product_form 列：按旧五类兼容映射预判，迁移后的引擎应得到同一结果。
+const LEGACY_PRODUCT_FORM = {
+  '固守+': '固收+',
+  '固收+': '固收+',
+  纯债: '纯债',
+  流动性: '纯债',
+  权益: '权益',
+  黄金: '黄金'
+}
+const fundProductForm = new Map()
 if (existsSync(dbPath)) {
-  const q = spawnSync('sqlite3', [dbPath, 'SELECT code, category FROM funds'])
+  const columns = spawnSync('sqlite3', [dbPath, 'PRAGMA table_info(funds)'])
+    .stdout.toString()
+    .split('\n')
+    .map((line) => line.split('|')[1])
+  const hasProductForm = columns.includes('product_form')
+  const q = spawnSync('sqlite3', [
+    dbPath,
+    hasProductForm ? 'SELECT code, product_form FROM funds' : 'SELECT code, category FROM funds'
+  ])
   if (q.status !== 0) {
     console.error(`RED: sqlite3 读取失败：${q.stderr?.toString().trim()}`)
     cleanup()
     process.exit(1)
   }
   for (const line of q.stdout.toString().split('\n')) {
-    const [code, category] = line.split('|')
-    if (code && category !== undefined) fundCategory.set(code.trim(), category.trim())
+    const [code, value] = line.split('|')
+    if (!code || value === undefined) continue
+    const form = hasProductForm ? value.trim() : (LEGACY_PRODUCT_FORM[value.trim()] ?? OTHER)
+    fundProductForm.set(code.trim(), form)
   }
 }
 
@@ -274,8 +294,8 @@ if (state.fundCount === 0) {
 
 // ---- 5. 断言 --------------------------------------------------------------
 const HEADERS = [
-  '大类',
-  '大类汇总',
+  '形态',
+  '形态汇总',
   '代码',
   '名称',
   '份额',
@@ -290,7 +310,7 @@ console.log(`持仓明细：${state.groups.length} 组 / ${state.groups.reduce((
 
 check(
   JSON.stringify(state.headers) === JSON.stringify(HEADERS),
-  '表头为 11 列且「大类 / 大类汇总」在最前',
+  '表头为 11 列且「形态 / 形态汇总」在最前',
   `实际 ${state.headers.join('/')}`
 )
 
@@ -316,22 +336,26 @@ const names = state.groups.map((g) => g.lead[0]?.text ?? null)
 check(new Set(names).size === names.length, '组名无重复', names.filter(Boolean).join(' → '))
 check(
   names.every((n) => n),
-  '每组首行都有合并的「大类」单元格'
+  '每组首行都有合并的「形态」单元格'
 )
 
-// 组序：CATEGORIES 声明顺序的子序列，「其他」若存在必在最后
+// 组序：PRODUCT_FORMS 声明顺序的子序列，「其他」若存在必在最后
 const expectedOrder = names.filter((n) => n !== OTHER)
-const idealOrder = CATEGORIES.filter((c) => expectedOrder.includes(c))
+const idealOrder = PRODUCT_FORMS.filter((c) => expectedOrder.includes(c))
 check(
   JSON.stringify(expectedOrder) === JSON.stringify(idealOrder),
-  '组序为 CATEGORIES 声明顺序',
+  '组序为 PRODUCT_FORMS 声明顺序',
   `实际 ${names.join(' → ')}`
 )
 check(!names.includes(OTHER) || names[names.length - 1] === OTHER, '「其他」组置底')
 
+// 验收 #27：旧流动性组消失；固收+ 用新名称，不再出现旧拼写「固守+」
+check(!names.includes('流动性'), '不再出现旧「流动性」组', names.join(' → '))
+check(!names.includes('固守+'), '不再出现旧拼写「固守+」', names.join(' → '))
+
 check(
   state.groups.every((g) => g.rows.length > 0),
-  '空大类不产生组（每组至少 1 行）'
+  '空产品形态不产生组（每组至少 1 行）'
 )
 
 // 合并单元格：rowSpan = 组内行数，且组内其余行不含这两列
@@ -339,8 +363,8 @@ let spanBad = []
 for (const g of state.groups) {
   const label = `「${g.lead[0]?.text}」`
   const n = String(g.rows.length)
-  if (g.lead[0]?.rowSpan !== n) spanBad.push(`${label}大类 rowspan=${g.lead[0]?.rowSpan} ≠ ${n}`)
-  if (g.lead[1]?.rowSpan !== n) spanBad.push(`${label}大类汇总 rowspan=${g.lead[1]?.rowSpan} ≠ ${n}`)
+  if (g.lead[0]?.rowSpan !== n) spanBad.push(`${label}形态 rowspan=${g.lead[0]?.rowSpan} ≠ ${n}`)
+  if (g.lead[1]?.rowSpan !== n) spanBad.push(`${label}形态汇总 rowspan=${g.lead[1]?.rowSpan} ≠ ${n}`)
   if (g.firstRowCells !== 11) spanBad.push(`${label}首行 ${g.firstRowCells} 格 ≠ 11`)
   if (g.otherRowCells.some((c) => c !== 9)) {
     spanBad.push(`${label}非首行格数 ${g.otherRowCells.join(',')} ≠ 9`)
@@ -352,7 +376,7 @@ check(spanBad.length === 0, '两个合并列 rowSpan = 组内行数；组内其�
 let styleBad = []
 for (const g of state.groups) {
   g.lead.forEach((c, i) => {
-    const col = i === 0 ? '大类' : '大类汇总'
+    const col = i === 0 ? '形态' : '形态汇总'
     if (c?.bg !== 'rgb(242, 243, 245)') styleBad.push(`${col}底色 ${c?.bg}`)
     if (c?.valign !== 'middle') styleBad.push(`${col}垂直对齐 ${c?.valign}`)
   })
@@ -363,22 +387,22 @@ check(
   [...new Set(styleBad)].join('; ')
 )
 
-// 无跨类穿插：每行的基金代码，其库内大类映射后必须等于所在组名
+// 无跨类穿插：每行的基金代码，其库内产品形态映射后必须等于所在组名
 let misplaced = []
 let unknownCode = 0
 for (const g of state.groups) {
   for (const r of g.rows) {
-    const cat = fundCategory.get(r.code)
-    if (cat === undefined) {
+    const form = fundProductForm.get(r.code)
+    if (form === undefined) {
       unknownCode++
       continue
     }
-    if (groupNameOf(cat) !== g.lead[0]?.text) {
-      misplaced.push(`${r.code}(${cat}) 落在「${g.lead[0]?.text}」`)
+    if (groupNameOf(form) !== g.lead[0]?.text) {
+      misplaced.push(`${r.code}(${form}) 落在「${g.lead[0]?.text}」`)
     }
   }
 }
-check(misplaced.length === 0, '同大类连续、无跨类穿插（逐行与库交叉验证）', misplaced.join('; '))
+check(misplaced.length === 0, '同产品形态连续、无跨组穿插（逐行与库交叉验证）', misplaced.join('; '))
 if (unknownCode > 0) console.log(`  提示：${unknownCode} 行代码不在 funds 表中，已跳过交叉验证`)
 
 // 组内按基金代码升序
@@ -391,7 +415,7 @@ for (const g of state.groups) {
 }
 check(orderBad.length === 0, '组内按基金代码升序', orderBad.join('; '))
 
-// 默认窗口宽度下不应有任何单元格折行（曾因 12 列把基金名称与「大类」挤断行）
+// 默认窗口宽度下不应有任何单元格折行（曾因 12 列把基金名称与「形态」挤断行）
 const wrappedCells = []
 for (const g of state.groups) {
   for (const r of g.rows) {
@@ -400,29 +424,29 @@ for (const g of state.groups) {
 }
 check(wrappedCells.length === 0, '默认窗口宽度下无单元格折行', wrappedCells.join('; '))
 
-// 大类汇总主行 = Σ 组内明细市值（各显示值独立舍入，故留容差；含真实金额，明细不回显）
+// 形态汇总主行 = Σ 组内明细市值（各显示值独立舍入，故留容差；含真实金额，明细不回显）
 let groupMismatch = []
 for (const g of state.groups) {
   const shown = money(g.lead[1]?.text)
   const sum = g.rows.reduce((s, r) => s + (money(r.marketValue) ?? 0), 0)
   if (shown === null) {
     if (g.rows.every((r) => money(r.marketValue) === null)) continue // 全无净值 → 「—」正确
-    groupMismatch.push(`「${g.lead[0]?.text}」大类汇总主行为「—」但组内有市值`)
+    groupMismatch.push(`「${g.lead[0]?.text}」形态汇总主行为「—」但组内有市值`)
     continue
   }
   if (Math.abs(shown - sum) > tol(g.rows.length)) {
-    groupMismatch.push(`「${g.lead[0]?.text}」大类汇总主行与组内行合计不符（${g.rows.length} 行）`)
+    groupMismatch.push(`「${g.lead[0]?.text}」形态汇总主行与组内行合计不符（${g.rows.length} 行）`)
   }
 }
-check(groupMismatch.length === 0, '大类汇总主行 = Σ 组内明细市值', groupMismatch.join('; '))
+check(groupMismatch.length === 0, '形态汇总主行 = Σ 组内明细市值', groupMismatch.join('; '))
 
-// Σ 大类汇总主行 == 顶部总资产卡
+// Σ 形态汇总主行 == 顶部总资产卡
 const sumGroups = state.groups.reduce((s, g) => s + (money(g.lead[1]?.text) ?? 0), 0)
 const totalAssets = money(state.totalAssetsText)
 const allRows = state.groups.reduce((s, g) => s + g.rows.length, 0)
 check(
   totalAssets !== null && Math.abs(sumGroups - totalAssets) <= tol(state.groups.length + allRows),
-  'Σ 大类汇总主行 == 顶部总资产',
+  'Σ 形态汇总主行 == 顶部总资产',
   totalAssets === null ? '' : '口径一致'
 )
 
@@ -518,9 +542,9 @@ if (failures.length > 0) {
   process.exit(1)
 }
 for (const g of state.groups) {
-  console.log(`  「${g.lead[0]?.text}」${g.rows.length} 行（大类汇总主行已校验）`)
+  console.log(`  「${g.lead[0]?.text}」${g.rows.length} 行（形态汇总主行已校验）`)
 }
-console.log(`GREEN: 概览持仓明细按大类分组全部断言通过（console 消息 ${logs.length} 条）`)
+console.log(`GREEN: 概览持仓明细按产品形态分组全部断言通过（console 消息 ${logs.length} 条）`)
 console.log(`截图: ${shotPath}`)
 cleanup()
 process.exit(0)

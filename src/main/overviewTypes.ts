@@ -5,7 +5,7 @@ import type { AllocationComparison, Fund, PositionGroup, SummaryData } from '../
 /** 概览页全量数据（顶部卡片/持仓明细/配置对比一次取回） */
 export interface OverviewData {
   funds: Fund[]
-  positionGroups: PositionGroup[] // 在持持仓按大类分组（组序与组头合计口径见 compute.groupPositionsByCategory）
+  positionGroups: PositionGroup[] // 在持持仓按产品形态分组（组序与组头合计口径见 compute.groupPositionsByProductForm）
   closedGroup: PositionGroup | null // 已清仓持仓（份额 ≤ 0）单列的表尾组；无已清仓时为 null（口径见 compute.groupClosedPositions）
   summary: SummaryData | null // 两种口径的汇总与单基金年化；空库为 null（不渲染汇总卡片）
   comparison: AllocationComparison // 三桶配置对比（口径见 engine/allocation.ts）

@@ -1,6 +1,6 @@
 // 计算引擎的领域类型——与 spec 数据模型保持一致
 
-import type { FundClassification } from './classification'
+import type { FundClassification, ProductForm } from './classification'
 
 export type OperationType = '买入' | '卖出' | '分红现金' | '分红再投入'
 export type NavSource = 'import' | 'auto' | 'manual'
@@ -17,6 +17,8 @@ export interface Fund {
   name: string
   category: string // 旧五类兼容值（过渡字段，见 classification.ts）
   fundType: string | null
+  /** 产品形态（schema v4 起读取层返回；手写旧 Fund 可省略） */
+  productForm?: ProductForm
 }
 
 /** 带新模型字段的基金（schema v4 起每只基金都有；读取层与创建路径返回该类型） */
@@ -69,7 +71,8 @@ export interface BucketTarget {
 export interface FundPosition {
   fundCode: string
   name: string
-  category: string
+  category: string // 旧五类兼容值（旧大类对比用；过渡字段，见 classification.ts）
+  productForm: ProductForm | null // 持仓分组的依据；旧兼容值无法识别时为 null
   fundType: string | null
   invested: number // 累计买入金额
   redeemed: number // 累计赎回金额（非负）
@@ -102,12 +105,12 @@ export interface ConcentrationMetrics {
   heldCount: number // 在持基金数 = 可估值 + 缺净值
 }
 
-/** 概览持仓明细的大类分组：组头 + 组内明细 */
+/** 概览持仓明细的组：组头 + 组内明细 */
 export interface PositionGroup {
-  category: string // 组名：CATEGORIES 之一、兜底组「其他」，或表尾组「已清仓」
-  marketValue: number | null // 组头合计（口径见 groupPositionsByCategory）；组内全无净值时为 null
-  pnlRatio: number | null // 大类盈亏比例 = Σ持仓盈亏 / Σ持仓成本（仅组内在持；任一市值未知或成本合计 ≤ 0 时为 null）
-  annualized: number | null // 大类年化收益率（XIRR；口径见 groupPositionsByCategory，无定义时为 null）
+  name: string // 组名：PRODUCT_FORMS 之一、兜底组「其他」，或表尾组「已清仓」
+  marketValue: number | null // 组头合计（口径见 groupPositionsByProductForm）；组内全无净值时为 null
+  pnlRatio: number | null // 组级盈亏比例 = Σ持仓盈亏 / Σ持仓成本（仅组内在持；任一市值未知或成本合计 ≤ 0 时为 null）
+  annualized: number | null // 组级年化收益率（XIRR；口径见 groupPositionsByProductForm，无定义时为 null）
   positions: FundPosition[] // 组内明细，按基金代码升序
 }
 

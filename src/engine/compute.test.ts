@@ -9,6 +9,7 @@ import type {
   PositionGroup,
   CategoryTarget
 } from './types'
+import type { ProductForm } from './classification'
 import {
   computePositions,
   computeTotals,
@@ -24,27 +25,30 @@ import {
   costBasisStates,
   realizedPerSale,
   realizedForSale,
-  groupPositionsByCategory,
+  groupPositionsByProductForm,
   groupClosedPositions,
-  OTHER_CATEGORY,
-  CLOSED_CATEGORY,
+  OTHER_GROUP,
+  CLOSED_GROUP,
   computeScopedSummary,
   computeConcentrationMetrics,
   latestNavDate,
   xirr
 } from './compute'
 
-/** 构造持仓：只关心分组与对比用到的字段，其余给中性值 */
+/** 构造持仓：只关心分组与对比用到的字段，其余给中性值。
+ *  category 是旧五类兼容值（旧大类对比用），productForm 是持仓分组的依据。 */
 function mkPosition(
   fundCode: string,
   category: string,
   marketValue: number | null,
-  shares = 100
+  shares = 100,
+  productForm: ProductForm | null = null
 ): FundPosition {
   return {
     fundCode,
     name: fundCode,
     category,
+    productForm,
     fundType: null,
     invested: 0,
     redeemed: 0,
@@ -59,9 +63,9 @@ function mkPosition(
   }
 }
 
-/** 既有分组用例的适配入口：这些用例不关心大类指标，流水给空值、今天给固定日。 */
+/** 既有分组用例的适配入口：这些用例不关心组级指标，流水给空值、今天给固定日。 */
 function groupHeldPositions(positions: FundPosition[]): PositionGroup[] {
-  return groupPositionsByCategory(positions, [], '2026-01-01')
+  return groupPositionsByProductForm(positions, [], '2026-01-01')
 }
 
 describe('数据新鲜度日期（latestNavDate）', () => {
@@ -190,6 +194,38 @@ describe('computePositions — Excel golden values（持仓概览 5 只基金逐
   })
 })
 
+describe('computePositions — 产品形态', () => {
+  it('旧五类派生：固守+ → 固收+，流动性 → 纯债', () => {
+    const positions = computePositions(
+      [
+        { code: '100001', name: 'A', category: '固守+', fundType: null },
+        { code: '100002', name: 'B', category: '流动性', fundType: null }
+      ],
+      [],
+      []
+    )
+    expect(positions.map((p) => p.productForm)).toEqual(['固收+', '纯债'])
+  })
+
+  it('新模型字段优先于旧兼容值', () => {
+    const [p] = computePositions(
+      [{ code: '100003', name: 'C', category: '固守+', fundType: null, productForm: '黄金' }],
+      [],
+      []
+    )
+    expect(p.productForm).toBe('黄金')
+  })
+
+  it('无法识别的旧类别：产品形态为空，分组时归入「其他」', () => {
+    const [p] = computePositions(
+      [{ code: '100004', name: 'D', category: '股票型', fundType: null }],
+      [],
+      []
+    )
+    expect(p.productForm).toBeNull()
+  })
+})
+
 describe('卖出与分红现金', () => {
   const fund: Fund = { code: '999001', name: '测试基金', category: '权益', fundType: null }
   const transactions: Transaction[] = [
@@ -263,10 +299,10 @@ describe('边界情况', () => {
 describe('大类配置对比', () => {
   it('投入比例/市值占比/偏离计算正确', () => {
     // 在持（份额 > 0）——投入比例只统计这类持仓
-    const positions = [
-      { fundCode: 'A', name: 'A', category: '固守+', fundType: null, invested: 300, redeemed: 0, netCost: 300, costBasis: 300, shares: 300, latestNav: null, latestNavDate: null, marketValue: 330, pnl: 30, pnlRatio: 0.1 },
-      { fundCode: 'B', name: 'B', category: '权益', fundType: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 110, pnl: 10, pnlRatio: 0.1 },
-      { fundCode: 'C', name: 'C', category: '黄金', fundType: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 100, pnl: 0, pnlRatio: 0 }
+    const positions: FundPosition[] = [
+      { fundCode: 'A', name: 'A', category: '固守+', productForm: '固收+', fundType: null, invested: 300, redeemed: 0, netCost: 300, costBasis: 300, shares: 300, latestNav: null, latestNavDate: null, marketValue: 330, pnl: 30, pnlRatio: 0.1 },
+      { fundCode: 'B', name: 'B', category: '权益', productForm: '权益', fundType: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 110, pnl: 10, pnlRatio: 0.1 },
+      { fundCode: 'C', name: 'C', category: '黄金', productForm: '黄金', fundType: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 100, pnl: 0, pnlRatio: 0 }
     ]
     const targets: CategoryTarget[] = [
       { category: '固守+', targetRatio: 0.25 },
@@ -385,80 +421,98 @@ describe('大类配置对比', () => {
   })
 })
 
-describe('持仓明细按大类分组', () => {
-  it('组序按 CATEGORIES 声明顺序（输入乱序也如此），组内按基金代码升序', () => {
+describe('持仓明细按产品形态分组', () => {
+  it('组序按 PRODUCT_FORMS 声明顺序（输入乱序也如此），组内按基金代码升序', () => {
     const groups = groupHeldPositions([
-      mkPosition('300001', '流动性', 300),
-      mkPosition('200002', '权益', 100),
-      mkPosition('200001', '权益', 200),
-      mkPosition('100001', '固守+', 500)
+      mkPosition('300001', '黄金', 300, 100, '黄金'),
+      mkPosition('200002', '权益', 100, 100, '权益'),
+      mkPosition('200001', '权益', 200, 100, '权益'),
+      mkPosition('100001', '固守+', 500, 100, '固收+')
     ])
-    expect(groups.map((g) => g.category)).toEqual(['固守+', '权益', '流动性'])
+    expect(groups.map((g) => g.name)).toEqual(['固收+', '权益', '黄金'])
     // 组内按代码升序，与市值无关（200001 市值更小仍排在 200002 前面）
     expect(groups[1].positions.map((p) => p.fundCode)).toEqual(['200001', '200002'])
   })
 
-  it('组头合计 = Σ市值；无持仓的大类不产生组', () => {
+  it('旧流动性基金按产品形态归入纯债，不再出现独立的流动性组', () => {
     const groups = groupHeldPositions([
-      mkPosition('200001', '权益', 100),
-      mkPosition('200002', '权益', 250.5),
-      mkPosition('100001', '固守+', 500)
+      mkPosition('100002', '流动性', 100, 100, '纯债'),
+      mkPosition('100001', '纯债', 200, 100, '纯债')
     ])
-    expect(groups.map((g) => g.category)).toEqual(['固守+', '权益'])
+    expect(groups.map((g) => g.name)).toEqual(['纯债'])
+    expect(groups[0].positions.map((p) => p.fundCode)).toEqual(['100001', '100002'])
+  })
+
+  it('固收+ 组显示新名称「固收+」，不出现旧拼写「固守+」', () => {
+    const groups = groupHeldPositions([
+      mkPosition('100001', '固守+', 500, 100, '固收+'),
+      mkPosition('100002', '纯债', 100, 100, '纯债')
+    ])
+    expect(groups.map((g) => g.name)).toEqual(['固收+', '纯债'])
+    expect(groups.map((g) => g.name)).not.toContain('固守+')
+  })
+
+  it('组头合计 = Σ市值；无持仓的产品形态不产生组', () => {
+    const groups = groupHeldPositions([
+      mkPosition('200001', '权益', 100, 100, '权益'),
+      mkPosition('200002', '权益', 250.5, 100, '权益'),
+      mkPosition('100001', '固守+', 500, 100, '固收+')
+    ])
+    expect(groups.map((g) => g.name)).toEqual(['固收+', '权益'])
     expect(groups[0].marketValue).toBeCloseTo(500, 9)
     expect(groups[1].marketValue).toBeCloseTo(350.5, 9)
   })
 
-  it('已清仓（份额为 0）被过滤；过滤后为空的大类不产生组', () => {
+  it('已清仓（份额为 0）被过滤；过滤后为空的产品形态不产生组', () => {
     const groups = groupHeldPositions([
-      mkPosition('200001', '权益', 100),
-      mkPosition('400001', '黄金', 0, 0) // 已清仓：黄金组过滤后为空，不应出现
+      mkPosition('200001', '权益', 100, 100, '权益'),
+      mkPosition('400001', '黄金', 0, 0, '黄金') // 已清仓：黄金组过滤后为空，不应出现
     ])
-    expect(groups.map((g) => g.category)).toEqual(['权益'])
+    expect(groups.map((g) => g.name)).toEqual(['权益'])
   })
 
-  it('非五类的脏值与空串归入「其他」并置底', () => {
+  it('产品形态缺失（既有数据无法识别）的持仓归入「其他」并置底', () => {
     const groups = groupHeldPositions([
       mkPosition('900002', '股票', 10),
       mkPosition('900001', '', 20),
-      mkPosition('100001', '固守+', 500)
+      mkPosition('100001', '固守+', 500, 100, '固收+')
     ])
-    expect(groups.map((g) => g.category)).toEqual(['固守+', OTHER_CATEGORY])
+    expect(groups.map((g) => g.name)).toEqual(['固收+', OTHER_GROUP])
     expect(groups[1].marketValue).toBeCloseTo(30, 9)
     expect(groups[1].positions.map((p) => p.fundCode)).toEqual(['900001', '900002'])
   })
 
   it('市值有无与大小都不影响组内次序（代码是主键、不并列，无需 tie-break）', () => {
     const groups = groupHeldPositions([
-      mkPosition('200003', '权益', null),
-      mkPosition('200001', '权益', 999),
-      mkPosition('200002', '权益', 1)
+      mkPosition('200003', '权益', null, 100, '权益'),
+      mkPosition('200001', '权益', 999, 100, '权益'),
+      mkPosition('200002', '权益', 1, 100, '权益')
     ])
     expect(groups[0].positions.map((p) => p.fundCode)).toEqual(['200001', '200002', '200003'])
   })
 
   it('组内全部无净值时组头合计为空值', () => {
     const groups = groupHeldPositions([
-      mkPosition('200001', '权益', null),
-      mkPosition('200002', '权益', null)
+      mkPosition('200001', '权益', null, 100, '权益'),
+      mkPosition('200002', '权益', null, 100, '权益')
     ])
     expect(groups[0].marketValue).toBeNull()
   })
 
   it('负份额（超卖数据错误）也不留在在持组里', () => {
     const groups = groupHeldPositions([
-      mkPosition('200001', '权益', 100),
-      mkPosition('400002', '黄金', -1200, -100) // 超卖：份额为负，市值随之为负
+      mkPosition('200001', '权益', 100, 100, '权益'),
+      mkPosition('400002', '黄金', -1200, -100, '黄金') // 超卖：份额为负，市值随之为负
     ])
-    expect(groups.map((g) => g.category)).toEqual(['权益'])
+    expect(groups.map((g) => g.name)).toEqual(['权益'])
   })
 
   it('各组头合计之和 == 总资产（含已清仓持仓时为同一口径）', () => {
     const positions = [
-      mkPosition('100001', '固守+', 500),
-      mkPosition('200001', '权益', 100),
-      mkPosition('200002', '权益', null),
-      mkPosition('400001', '黄金', 0, 0) // 已清仓：对两个口径都贡献 0
+      mkPosition('100001', '固守+', 500, 100, '固收+'),
+      mkPosition('200001', '权益', 100, 100, '权益'),
+      mkPosition('200002', '权益', null, 100, '权益'),
+      mkPosition('400001', '黄金', 0, 0, '黄金') // 已清仓：对两个口径都贡献 0
     ]
     const groups = groupHeldPositions(positions)
     const sum = groups.reduce((s, g) => s + (g.marketValue ?? 0), 0)
@@ -480,10 +534,10 @@ describe('已清仓分组（持仓明细表尾单独一组）', () => {
       { ...mkPosition('400001', '固守+', -50, -10), invested: 1000, redeemed: 1100 } // 超卖（负份额）也算已清仓
     ])
     expect(group).not.toBeNull()
-    expect(group!.category).toBe(CLOSED_CATEGORY)
+    expect(group!.name).toBe(CLOSED_GROUP)
     expect(group!.positions.map((p) => p.fundCode)).toEqual(['400001', '400002'])
-    expect(group!.marketValue).toBeNull() // 组头「大类市值」显示「—」：无在持份额即无市值口径
-    expect(group!.pnlRatio).toBeNull() // 已清仓组不是资产大类：两项指标恒为空
+    expect(group!.marketValue).toBeNull() // 组头「形态汇总」显示「—」：无在持份额即无市值口径
+    expect(group!.pnlRatio).toBeNull() // 已清仓组不是产品形态组：两项指标恒为空
     expect(group!.annualized).toBeNull()
   })
 
@@ -503,7 +557,7 @@ describe('已清仓分组（持仓明细表尾单独一组）', () => {
   })
 })
 
-describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率）', () => {
+describe('持仓明细组级指标（组级盈亏比例 / 组级年化收益率）', () => {
   const TODAY = '2027-01-01'
   const fundOf = (code: string, category: string): Fund => ({
     code,
@@ -528,12 +582,12 @@ describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率�
     funds: Fund[],
     txs: Transaction[],
     navs: NavPoint[]
-  ): ReturnType<typeof groupPositionsByCategory> => {
+  ): ReturnType<typeof groupPositionsByProductForm> => {
     const positions = computePositions(funds, txs, navs)
-    return groupPositionsByCategory(positions, txs, TODAY)
+    return groupPositionsByProductForm(positions, txs, TODAY)
   }
 
-  it('大类盈亏比例 = Σ持仓盈亏 ÷ Σ持仓成本（多基金加权，不是各基金比例的平均）', () => {
+  it('组级盈亏比例 = Σ持仓盈亏 ÷ Σ持仓成本（多基金加权，不是各基金比例的平均）', () => {
     // A：成本 1000，市值 1200（+200，+20%）；B：成本 3000，市值 2700（−300，−10%）
     const [group] = groupsOf(
       [fundOf('A', '权益'), fundOf('B', '权益')],
@@ -544,7 +598,7 @@ describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率�
     expect(group.pnlRatio).not.toBeCloseTo(0.05, 9) // 等权平均是 +5%，两者可区分
   })
 
-  it('大类年化收益率 = 组内在持基金完整现金流的 XIRR（两基金手算黄金值）', () => {
+  it('组级年化收益率 = 组内在持基金完整现金流的 XIRR（两基金手算黄金值）', () => {
     // A、B 均在 2025-01-01 买入 1000；今天 2027-01-01（730 天）市值 1320 + 1100 = 2420。
     // 1 + r = √(2420 / 2000) = 1.1 → r = 10%
     const [group] = groupsOf(
@@ -556,12 +610,12 @@ describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率�
     expect(group.annualized).toBeCloseTo(0.1, 9)
   })
 
-  it('只有一个基金的大类：大类值与逐基金列相同（同一公式、同一流水）', () => {
+  it('只有一个基金的组：组级值与逐基金列相同（同一公式、同一流水）', () => {
     const funds = [fundOf('A', '权益')]
     const txs = [tx('2025-01-01', '买入', 'A', 1000, 1000)]
     const navs = [nav('A', TODAY, 1.32)]
     const positions = computePositions(funds, txs, navs)
-    const [group] = groupPositionsByCategory(positions, txs, TODAY)
+    const [group] = groupPositionsByProductForm(positions, txs, TODAY)
     expect(group.pnlRatio).toBeCloseTo(positions[0].pnlRatio!, 12)
     expect(group.annualized).toBeCloseTo(
       computeAnnualizedReturns(txs, navs, TODAY).get('A')!,
@@ -569,7 +623,7 @@ describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率�
     )
   })
 
-  it('组内任一在持基金市值未知：大类盈亏比例与大类年化收益率两项皆空（不展示残缺汇总）', () => {
+  it('组内任一在持基金市值未知：组级盈亏比例与组级年化收益率两项皆空（不展示残缺汇总）', () => {
     // B 没有净值记录：marketValue 为 null；A 正常
     const [group] = groupsOf(
       [fundOf('A', '权益'), fundOf('B', '权益')],
@@ -581,7 +635,7 @@ describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率�
     expect(group.annualized).toBeNull()
   })
 
-  it('持仓成本合计为 0：大类盈亏比例为空（比例无定义），大类年化收益率同样为空', () => {
+  it('持仓成本合计为 0：组级盈亏比例为空（比例无定义），组级年化收益率同样为空', () => {
     // 只有分红再投入（0 成本份额）：份额 > 0、市值存在，但 Σ持仓成本 = 0
     const [group] = groupsOf(
       [fundOf('A', '权益')],
@@ -608,18 +662,18 @@ describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率�
     expect(group.pnlRatio).toBeCloseTo(0.2, 9) // 仅 A：200 / 1000
   })
 
-  it('「其他」兜底组同规则：脏值类目也按同一公式算出大类指标', () => {
+  it('「其他」兜底组同规则：脏值产品形态也按同一公式算出组级指标', () => {
     const [group] = groupsOf(
       [fundOf('A', '股票'), fundOf('B', '')],
       [tx('2025-01-01', '买入', 'A', 1000, 1000), tx('2025-01-01', '买入', 'B', 1000, 1000)],
       [nav('A', TODAY, 1.2), nav('B', TODAY, 0.9)]
     )
-    expect(group.category).toBe(OTHER_CATEGORY)
+    expect(group.name).toBe(OTHER_GROUP)
     expect(group.pnlRatio).toBeCloseTo(100 / 2000, 9) // 320 − 100 的加权合计
     expect(group.annualized).toBeCloseTo(Math.sqrt(1.05) - 1, 9) // −2000 → 2100，730 天 → √1.05 − 1
   })
 
-  it('大类年化收益率的现金流只取组内基金：不同大类互不串流', () => {
+  it('组级年化收益率的现金流只取组内基金：不同组互不串流', () => {
     // 权益 A：1000 → 1210（年化 +10%）；黄金 B：1000 → 810（年化 −10%）；均为 730 天
     const groups = groupsOf(
       [fundOf('A', '权益'), fundOf('B', '黄金')],
@@ -630,7 +684,7 @@ describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率�
     expect(groups[1].annualized).toBeCloseTo(-0.1, 9)
   })
 
-  it('已清仓基金的卖出回款不进大类年化收益率（仅组内在持基金参与）', () => {
+  it('已清仓基金的卖出回款不进组级年化收益率（仅组内在持基金参与）', () => {
     // A 在持：1000 → 1210（730 天，10%）；B 已清仓：1000 → 2000（若串入会把组年化抬高）
     const [group] = groupsOf(
       [fundOf('A', '权益'), fundOf('B', '权益')],
@@ -644,7 +698,7 @@ describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率�
     expect(group.annualized).toBeCloseTo(0.1, 9)
   })
 
-  it('首笔现金流距今天不足 30 天：大类年化收益率为空，大类盈亏比例照常', () => {
+  it('首笔现金流距今天不足 30 天：组级年化收益率为空，组级盈亏比例照常', () => {
     const [group] = groupsOf(
       [fundOf('A', '权益')],
       [tx('2026-12-03', '买入', 'A', 1000, 1000)], // 距 2027-01-01 仅 29 天
@@ -654,7 +708,7 @@ describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率�
     expect(group.annualized).toBeNull()
   })
 
-  it('净投入 ≤ 0：大类年化收益率为空（求根无经济意义），大类盈亏比例照常', () => {
+  it('净投入 ≤ 0：组级年化收益率为空（求根无经济意义），组级盈亏比例照常', () => {
     const [group] = groupsOf(
       [fundOf('A', '权益')],
       [
@@ -667,7 +721,7 @@ describe('持仓明细大类指标（大类盈亏比例 / 大类年化收益率�
     expect(group.annualized).toBeNull()
   })
 
-  it('清仓后重建：大类年化收益率含完整历史，时钟不重置（手算 10%）', () => {
+  it('清仓后重建：组级年化收益率含完整历史，时钟不重置（手算 10%）', () => {
     // 与口径化汇总同一场景：−1000 / +1200 / −500 与期末 440（三轮现金流跨两年）
     const [group] = groupsOf(
       [fundOf('A', '权益')],

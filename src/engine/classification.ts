@@ -55,6 +55,14 @@ const LEGACY_CATEGORY_MAP: Record<string, { productForm: ProductForm; compatCate
 /** 兼容映射的全部旧大类写法（迁移预检与回填共用） */
 export const LEGACY_FUND_CATEGORIES = Object.keys(LEGACY_CATEGORY_MAP)
 
+/** 基金的产品形态：新模型字段优先，缺失时由旧大类兼容映射派生；无法识别返回 null（不猜测）。 */
+export function deriveProductForm(
+  category: string,
+  productForm?: ProductForm
+): ProductForm | null {
+  return productForm ?? resolveLegacyCategory(category)?.classification.productForm ?? null
+}
+
 export interface LegacyCategoryResolution {
   /** 写入兼容列 funds.category 的旧五类写法 */
   compatCategory: string
