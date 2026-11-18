@@ -1,7 +1,6 @@
 // Excel 导入解析器的领域类型
 
 import type {
-  CategoryTarget,
   Fund,
   FundPosition,
   NavPoint,
@@ -21,7 +20,14 @@ export type FixKind =
   | 'snapshot-reconstruct'
   | 'current-nav-import'
   | 'field-normalize'
+  | 'category-inferred'
   | 'row-skipped'
+
+/** 预览警告：必须先修正源数据才能导入的问题（不静默兜底） */
+export interface ImportWarning {
+  kind: 'unknown-category' | 'unknown-fund-type'
+  detail: string // 中文说明（含具体标签、基金类型与基金代码）
+}
 
 export interface FixItem {
   kind: FixKind
@@ -96,7 +102,6 @@ export interface ParseSummary {
 
 export interface ParseResult {
   funds: Fund[]
-  categoryTargets: CategoryTarget[]
   transactionRows: ParsedTransactionRow[]
   snapshots: Snapshot[]
   /** 预览用的重建结果；确认导入时以最终确认的流水重新计算 */
@@ -105,6 +110,8 @@ export interface ParseResult {
   /** 持仓概览最新净值 → 当前净值点（日期取流水最大日期） */
   currentNavPoints: NavPoint[]
   fixes: FixItem[]
+  /** 无法识别的大类/产品形态标签：预览中明确警告，导入写入前由统一校验拒绝 */
+  warnings: ImportWarning[]
   suspicious: SuspiciousItem[]
   expectation: ExcelExpectation
   summary: ParseSummary
@@ -113,7 +120,6 @@ export interface ParseResult {
 /** 确认导入载荷：用户已在预览中修改可疑行后的最终数据 */
 export interface CommitPayload {
   funds: Fund[]
-  categoryTargets: CategoryTarget[]
   transactions: Transaction[]
   snapshots: Snapshot[]
   /** 净值取自持仓概览；主进程按最大流水日期校正后写入 */
@@ -124,7 +130,6 @@ export interface CommitPayload {
 
 export interface ImportCounts {
   funds: number
-  categoryTargets: number
   transactions: number
   reconstructedNavs: number // 快照重建的净值历史条数
   currentNavs: number // 持仓概览当前净值条数

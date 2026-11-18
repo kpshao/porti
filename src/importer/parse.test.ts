@@ -10,35 +10,39 @@ const FIXTURE = join(process.cwd(), '投资跟踪.xlsx')
 const result = parseExcelFile(FIXTURE)
 
 describe('parseExcelFile — 真实投资跟踪.xlsx 黄金验收', () => {
-  it('10 只基金全部导入，类别/类型正确', () => {
+  it('10 只基金全部导入，旧标签映射到产品形态', () => {
     expect(result.summary.fundCount).toBe(10)
     expect(result.funds).toHaveLength(10)
     const byCode = new Map(result.funds.map((f) => [f.code, f]))
 
     expect(byCode.get('519680')).toMatchObject({
-      name: '交银增利债券A', category: '纯债', fundType: '一级债基'
+      name: '交银增利债券A', category: '纯债', fundType: '一级债基', productForm: '纯债'
     })
+    // 旧「流动性」归入 债 / 纯债
     expect(byCode.get('007824')).toMatchObject({
-      name: '天弘弘择短债债券C', category: '流动性', fundType: '短债'
+      name: '天弘弘择短债债券C', category: '纯债', fundType: '短债', productForm: '纯债'
+    })
+    expect(byCode.get('110017')).toMatchObject({
+      name: '易方达增强回报债券A', category: '固守+', productForm: '固收+'
     })
     expect(byCode.get('000217')).toMatchObject({
-      name: '华安黄金ETF联接C', category: '黄金', fundType: '黄金'
+      name: '华安黄金ETF联接C', category: '黄金', fundType: '黄金', productForm: '黄金'
     })
-    // 未出现在持仓概览的基金：类型回退映射大类
+    // 未出现在持仓概览的基金：按基金类型推断产品形态
     expect(byCode.get('000385')).toMatchObject({
-      name: '景顺长城景颐双利A', category: '固守+', fundType: '二级债基'
+      name: '景顺长城景颐双利A', category: '固守+', fundType: '二级债基', productForm: '固收+'
     })
   })
 
-  it('5 个大类目标比例导入', () => {
-    expect(result.categoryTargets).toEqual([
-      { category: '固守+', targetRatio: 0.25 },
-      { category: '纯债', targetRatio: 0.45 },
-      { category: '权益', targetRatio: 0.2 },
-      { category: '黄金', targetRatio: 0.05 },
-      { category: '流动性', targetRatio: 0.05 }
-    ])
+  it('基金类型回退映射在预览中标记为推断', () => {
+    const inferred = result.fixes.find((f) => f.kind === 'category-inferred')
+    expect(inferred).toBeDefined()
+    expect(inferred!.count).toBe(1)
+    expect(inferred!.detail).toContain('000385')
+    expect(inferred!.detail).toContain('二级债基')
+    expect(inferred!.detail).toContain('固收+')
   })
+
 
   it('69 笔流水全部导入，操作类型与字段完整', () => {
     expect(result.summary.transactionCount).toBe(69)
@@ -201,5 +205,88 @@ describe('parseWorkbook — 可疑判定（合成夹具）', () => {
     // 参考净值 = 快照市值 ÷ 当日累计份额（1000 + 50）
     expect(navField.suggested).toBeCloseTo(1530 / 1050, 4)
     expect(s.detail).toContain('净值')
+  })
+})
+
+// ---------- 合成工作簿：大类/产品形态标签映射与未知标签警告 ----------
+
+/** 持仓概览行：第 1 列类别标签（null 表示继承上一段），第 6 列基金代码 */
+function overviewRow(label: string | null, code: string, name = code): unknown[] {
+  const row: unknown[] = [label, null, null, null, null, code, name]
+  while (row.length < 18) row.push(null)
+  return row
+}
+
+/** 最小五表工作簿：基金列表 + 持仓概览（段头 + 基金行），其余表只有表头 */
+function classificationWorkbook(
+  funds: [code: string, name: string, fundType: string | null][],
+  overview: unknown[][]
+): XLSX.WorkBook {
+  const wb = XLSX.utils.book_new()
+  const put = (name: string, rows: unknown[][]): void => {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name)
+  }
+  put('基金列表', [['代码', '名称', '类型'], ...funds])
+  put('持仓概览', [
+    ['类别', '目标', '比例', '总市值', '比例', '基金代码', '基金简称'],
+    ...overview
+  ])
+  put('交易流水', [['日期', '操作类型', '基金代码', '基金名称', '金额', '份额', '净值', '手续费', '备注']])
+  put('收益明细', [['日期', '基金代码', '基金名称', '当日收益', '累计收益', '市值']])
+  put('收益汇总', [['日期', null, null, '总市值']])
+  return wb
+}
+
+describe('parseWorkbook — 大类/产品形态标签映射（合成夹具）', () => {
+  const cases: [label: string, productForm: string, category: string][] = [
+    ['固守+', '固收+', '固守+'],
+    ['固收+', '固收+', '固守+'],
+    ['纯债', '纯债', '纯债'],
+    ['权益', '权益', '权益'],
+    ['黄金', '黄金', '黄金'],
+    // 旧「流动性」归入 债 / 纯债
+    ['流动性', '纯债', '纯债']
+  ]
+  const funds = cases.map((_, i): [string, string, string] => [`00000${i + 1}`, `基金${i + 1}`, '二级债基'])
+  const overview = cases.map(([label], i) => overviewRow(label, `00000${i + 1}`, `基金${i + 1}`))
+  const parsed = parseWorkbook(classificationWorkbook(funds, overview))
+
+  it('旧五类与新标签都映射到正确的产品形态与兼容列', () => {
+    cases.forEach(([label, productForm, category], i) => {
+      const fund = parsed.funds.find((f) => f.code === `00000${i + 1}`)
+      expect(fund).toBeDefined()
+      expect(fund!.productForm).toBe(productForm)
+      expect(fund!.category).toBe(category)
+    })
+    expect(parsed.warnings).toEqual([])
+  })
+})
+
+describe('parseWorkbook — 未知标签警告（合成夹具）', () => {
+  it('持仓概览出现未知标签：给出警告并列出具体值与基金代码，不静默兜底为权益', () => {
+    const parsed = parseWorkbook(
+      classificationWorkbook(
+        [['000010', '未知标签基金', '二级债基']],
+        [overviewRow('股票型', '000010', '未知标签基金')]
+      )
+    )
+    const fund = parsed.funds.find((f) => f.code === '000010')!
+    expect(fund.productForm).toBeUndefined()
+    expect(parsed.warnings).toHaveLength(1)
+    expect(parsed.warnings[0].kind).toBe('unknown-category')
+    expect(parsed.warnings[0].detail).toContain('股票型')
+    expect(parsed.warnings[0].detail).toContain('000010')
+  })
+
+  it('未出现在持仓概览且基金类型无法识别：给出警告，不兜底为权益', () => {
+    const parsed = parseWorkbook(
+      classificationWorkbook([['000011', '未知类型基金', '另类投资']], [])
+    )
+    const fund = parsed.funds.find((f) => f.code === '000011')!
+    expect(fund.productForm).toBeUndefined()
+    expect(parsed.warnings).toHaveLength(1)
+    expect(parsed.warnings[0].kind).toBe('unknown-fund-type')
+    expect(parsed.warnings[0].detail).toContain('另类投资')
+    expect(parsed.warnings[0].detail).toContain('000011')
   })
 })
