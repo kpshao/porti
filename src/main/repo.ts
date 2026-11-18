@@ -31,6 +31,29 @@ export function insertFund(db: Database.Database, fund: ClassifiedFund, createdA
   )
 }
 
+/** 基金配置更新：代码只作定位条件、不参与写入；可变字段的列集合集中于此 */
+export function updateFundRow(
+  db: Database.Database,
+  fund: Pick<
+    ClassifiedFund,
+    'code' | 'name' | 'category' | 'productForm' | 'ledgerCategory' | 'equityRatio' | 'equityRatioSource'
+  >
+): void {
+  db.prepare(
+    `UPDATE funds
+     SET name = ?, category = ?, product_form = ?, ledger_category = ?, equity_ratio = ?, equity_ratio_source = ?
+     WHERE code = ?`
+  ).run(
+    fund.name,
+    fund.category,
+    fund.productForm,
+    fund.ledgerCategory,
+    fund.equityRatio,
+    fund.equityRatioSource,
+    fund.code
+  )
+}
+
 /** 基金读取：funds 表还没有新模型字段时按旧五类派生，令旧结构与迁移中的库仍可读取 */
 export function selectFunds(db: Database.Database): ClassifiedFund[] {
   const columns = (db.prepare('PRAGMA table_info(funds)').all() as { name: string }[]).map(

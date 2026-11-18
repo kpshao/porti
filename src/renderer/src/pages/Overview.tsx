@@ -5,17 +5,18 @@ import type { OverviewData } from '../../../main/overviewTypes'
 import FundDetail from '../components/FundDetail'
 import SummaryCards from '../components/SummaryCards'
 import { MERGED_BUY_HINT } from '../utils/annualized'
-import { formatMoney, formatNav, formatPercent, formatShares } from '../utils/format'
+import {
+  formatMoney,
+  formatNav,
+  formatPercent,
+  formatShares,
+  ratioToPercentText
+} from '../utils/format'
 import { ipcErrorMessage } from '../utils/ipc'
 import { pnlClass } from '../utils/pnl'
 
 /** 行内编辑暂存值：键为配置桶名（目标比例） */
 type Edits = Partial<Record<AllocationBucket, string>>
-
-/** 目标比例输入以百分比显示与录入（界面约定：比例保留 2 位） */
-function ratioToPercentText(ratio: number): string {
-  return (ratio * 100).toFixed(2)
-}
 
 /** 行内数字编辑框：失焦或回车提交（概览页目标比例） */
 function InlineNumberEdit(props: {

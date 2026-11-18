@@ -1,7 +1,15 @@
 /// <reference types="vite/client" />
 
-import type { BucketTarget, FundInput, FundSeriesRange, TransactionInput } from '../../engine'
+import type {
+  BucketTarget,
+  ClassifiedFund,
+  FundInput,
+  FundSeriesRange,
+  FundUpdateInput,
+  TransactionInput
+} from '../../engine'
 import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../../importer/types'
+import type { FundConfigData } from '../../main/fundConfigTypes'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from '../../main/navTypes'
 import type { MigrationMeta } from '../../main/migrationService'
 import type { OverviewData } from '../../main/overviewTypes'
@@ -37,6 +45,8 @@ declare global {
       txUpdate: (id: number, input: TransactionInput) => Promise<void>
       txDelete: (id: number) => Promise<void>
       fundCreate: (input: FundInput) => Promise<void>
+      fundConfigData: () => Promise<FundConfigData>
+      fundConfigUpdate: (input: FundUpdateInput) => Promise<ClassifiedFund>
       navData: () => Promise<NavData>
       navFetch: () => Promise<NavFetchResult>
       navPut: (input: NavInput) => Promise<void>
