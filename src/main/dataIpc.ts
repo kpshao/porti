@@ -21,6 +21,7 @@ import {
 } from '../engine'
 import type {
   BucketTarget,
+  Fund,
   FundInput,
   FundPosition,
   FundSeriesRange,
@@ -44,7 +45,14 @@ import { SCHEMA_VERSION } from './schema'
 import { loadSettings, saveDbPath, saveMigrationPromptDismissed } from './settingsStore'
 import { createFund, createTransaction, deleteTransaction, updateTransaction } from './transactionService'
 import { listFundConfigs, updateFund } from './fundConfigService'
-import type { FundConfigData } from './fundConfigTypes'
+import type {
+  EquityFetchEvent,
+  EquityFetchResult,
+  EquityRatioConfirmInput,
+  FundConfigData
+} from './fundConfigTypes'
+import { defaultEquityHttpGet, fetchEquityCandidate } from '../fetcher/equityFetch'
+import { confirmEquityRatio, fetchAllEquityCandidates } from './equityFetchService'
 import { getFetchStatus, runNavFetch, upsertManualNav } from './navService'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from './navTypes'
 import { loadBucketTargets, saveBucketTargets } from './targetService'
@@ -120,6 +128,30 @@ export function registerDataIpc(): void {
   ipcMain.handle('fund-config:data', (): FundConfigData => ({ funds: listFundConfigs(getDb()) }))
 
   ipcMain.handle('fund-config:update', (_event, input: FundUpdateInput) => updateFund(getDb(), input))
+
+  // 抓取单只基金的股票占净比候选值：网络请求只在主进程发起；确认前不写库
+  ipcMain.handle(
+    'fund-config:fetch-equity',
+    (_event, fundCode: string): Promise<EquityFetchResult> =>
+      fetchEquityCandidate(fundCode, defaultEquityHttpGet)
+  )
+
+  // 刷新全部：主进程顺序抓取并控制频率，逐行事件用于界面展示进行中与错误状态
+  ipcMain.handle('fund-config:fetch-equity-all', async (event): Promise<EquityFetchResult[]> => {
+    const send = (payload: EquityFetchEvent): void => {
+      if (!event.sender.isDestroyed()) event.sender.send('fund-config:equity-fetch-event', payload)
+    }
+    return fetchAllEquityCandidates(getDb(), defaultEquityHttpGet, {
+      onStart: (fundCode) => send({ type: 'started', fundCode }),
+      onResult: (result) => send({ type: 'result', result })
+    })
+  })
+
+  // 用户确认候选值后才写入：未改值来源记为抓取，改过记为手工
+  ipcMain.handle(
+    'fund-config:confirm-equity',
+    (_event, input: EquityRatioConfirmInput): Fund => confirmEquityRatio(getDb(), input)
+  )
 
   // ---------- 净值管理页：历史数据 + 一键抓取 + 手动补录 + 启动抓取状态 ----------
 

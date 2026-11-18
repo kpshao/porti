@@ -13,14 +13,20 @@
 //   4. 产品形态与账本大类不一致时被拒绝，库内字段不变；
 //   5. 权益系数限制在 0–100%，越界被拒绝；
 //   6. 新建基金表单使用产品形态（无旧「资产大类」），账本大类派生正确；
-//      新建基金加一笔买入后出现在正确的持仓分组。
+//      新建基金加一笔买入后出现在正确的持仓分组；
+//   7. 手动抓取：单只失败保留原系数并逐行报错；刷新全部继续处理其余基金；
+//      抓取候选值展示股票占净比（季报）、报告期与来源，确认前不写库；
+//      未改值确认来源记为 fetch，改过值确认来源记为 manual，手工值不被静默覆盖。
 //
-// 合成夹具（基金代码为不存在的 9xxxxx，避免启动自动抓取改写净值）：
+// 合成夹具（9xxxxx 为不存在的代码，避免启动自动抓取改写净值）：
 //   A 910001 债/固收+ 系数 20%，净投入 1000，市值 1200；
 //   B 910002 债/纯债 系数 0，净投入 1000，市值 1000（稍后重分类为固收+）；
 //   C 910003 权益/权益 系数 100%，净投入 1000，市值 1500（稍后把系数改为 50%）；
 //   D 910004 黄金/黄金 系数 0，净投入 1000，市值 1000；
-//   E 910005 已清仓（净投入残留 300，配置对比不统计）。
+//   E 910005 已清仓（净投入残留 300，配置对比不统计）；
+//   F 000001 真实基金代码、无流水，仅用于手动抓取候选值流程（需要联网）。
+//
+// 前置条件：抓取流程会访问东方财富公开数据；离线时该段断言会 RED。
 //
 // 退出码：0 = 通过；1 = RED。
 //
@@ -44,7 +50,15 @@ const ELECTRON_BIN =
 const PRODUCT_FORMS = ['固收+', '纯债', '权益', '黄金']
 const LEDGER_CATEGORIES = ['债', '权益', '黄金']
 const BUCKETS = ['稳健', '权益', '黄金']
-const HEADERS = ['代码', '名称', '产品形态', '账本大类', '权益系数（%）', '操作']
+const HEADERS = [
+  '代码',
+  '名称',
+  '产品形态',
+  '账本大类',
+  '权益系数（%）',
+  '股票占净比（季报）',
+  '操作'
+]
 
 const failures = []
 function check(ok, label, detail = '') {
@@ -134,6 +148,8 @@ const dbPath = join(profileDir, 'porti.db')
   insertFund.run('910003', '测试权益', '宽基指数', '权益', '权益', 1)
   insertFund.run('910004', '测试黄金', '黄金', '黄金', '黄金', 0)
   insertFund.run('910005', '测试已清仓', '一级债基', '债', '纯债', 0)
+  // 真实代码 + 无流水：只验证抓取候选值流程，不影响配置对比
+  insertFund.run('000001', '抓取测试基金', '宽基指数', '权益', '权益', 1)
 
   const insertTx = db.prepare(
     `INSERT INTO transactions (date, type, fund_code, amount, shares, nav, fee, note, created_at, updated_at)
@@ -341,8 +357,17 @@ const READ_FUND_CONFIG = `(() => {
       name: tr.children[1]?.querySelector('input')?.value ?? tr.children[1]?.textContent?.trim() ?? '',
       productForm: tr.children[2]?.querySelector('select')?.value ?? tr.children[2]?.textContent?.trim() ?? '',
       ledgerCategory: tr.children[3]?.querySelector('select')?.value ?? tr.children[3]?.textContent?.trim() ?? '',
-      ratio: tr.children[4]?.querySelector('input')?.value ?? tr.children[4]?.textContent?.trim() ?? '',
-      actions: [...(tr.children[5]?.querySelectorAll('button') ?? [])].map((b) => b.textContent.trim())
+      ratio:
+        tr.children[4]?.querySelector('input')?.value ??
+        tr.children[4]?.querySelector('.fund-config-ratio-value')?.textContent?.trim() ??
+        '',
+      ratioMeta: tr.children[4]?.querySelector('.fund-config-ratio-meta')?.textContent?.trim() ?? '',
+      candidate: tr.children[5]?.textContent?.trim() ?? '',
+      candidateRatio: tr.children[5]?.querySelector('.fund-config-candidate-ratio')?.value ?? null,
+      candidateMeta: tr.children[5]?.querySelector('.fund-config-candidate-meta')?.textContent?.trim() ?? '',
+      candidateError: tr.children[5]?.querySelector('.fund-config-candidate-error')?.textContent?.trim() ?? null,
+      candidateButtons: [...(tr.children[5]?.querySelectorAll('button') ?? [])].map((b) => b.textContent.trim()),
+      actions: [...(tr.children[6]?.querySelectorAll('button') ?? [])].map((b) => b.textContent.trim())
     })),
     pageButtons: [...document.querySelectorAll('.page button')].map((b) => b.textContent.trim()),
     error: document.querySelector('.page > .banner-error')?.textContent?.trim() ?? null,
@@ -465,7 +490,7 @@ if (listed === null) {
 }
 check(listed.sidebar.includes('基金配置'), '侧栏有「基金配置」入口', listed.sidebar.join('/'))
 check(listed.heading === '基金配置', '页面标题为「基金配置」', listed.heading)
-check(JSON.stringify(listed.headers) === JSON.stringify(HEADERS), '表头为 6 列', listed.headers.join('/'))
+check(JSON.stringify(listed.headers) === JSON.stringify(HEADERS), '表头为 7 列', listed.headers.join('/'))
 
 const codes = listed.rows.map((r) => r.code)
 check(
@@ -482,9 +507,10 @@ check(
   '页面不提供新建或删除基金入口',
   listed.pageButtons.join('/')
 )
+check(listed.pageButtons.includes('刷新全部'), '页面提供「刷新全部」批量动作', listed.pageButtons.join('/'))
 check(
-  listed.rows.every((r) => JSON.stringify(r.actions) === JSON.stringify(['编辑'])),
-  '每行只有「编辑」入口',
+  listed.rows.every((r) => JSON.stringify(r.actions) === JSON.stringify(['编辑', '抓取'])),
+  '每行有「编辑」与「抓取」入口',
   listed.rows.map((r) => r.actions.join('+')).join(' / ')
 )
 
@@ -774,7 +800,179 @@ if (finalAllocation !== null) {
   )
 }
 
-// ---- 11. 收尾 ---------------------------------------------------------------
+// ---- 11. 手动抓取：失败保留旧值、批量继续、候选确认与来源 --------------------
+console.log('手动抓取权益系数')
+await navigate('基金配置')
+await waitFor(readConfig, 15000)
+
+const rowOf = async (code) => {
+  const state = await readConfig()
+  return state?.rows.find((r) => r.code === code) ?? null
+}
+const waitForRow = (code, predicate, ms = 30000) =>
+  waitFor(async () => {
+    const row = await rowOf(code)
+    return row !== null && predicate(row) ? row : null
+  }, ms)
+const reportDateOf = (row) => {
+  const match = /报告期 (\d{4}-\d{2}-\d{2})/.exec(row?.candidateMeta ?? '')
+  return match === null ? null : match[1]
+}
+const clickPageAction = (label) =>
+  evalJs(
+    `[...document.querySelectorAll('.page-actions button')].find((b) => b.textContent.trim() === ${JSON.stringify(label)})?.click(), true`
+  )
+
+// 11.1 单只失败：假代码无公开数据；逐行报错且原系数/来源不变
+const beforeFailedFetch = dbFund('910001')
+check((await clickRowButton('910001', '抓取')) === true, '点击 910001 行「抓取」')
+const failedRow = await waitForRow('910001', (row) => row.candidateError !== null)
+check(failedRow !== null, '抓取失败逐行显示错误', failedRow?.candidateError ?? '缺少错误')
+check(
+  failedRow !== null && failedRow.candidateError.includes('抓取失败'),
+  '错误说明抓取失败原因',
+  failedRow?.candidateError ?? '缺少错误'
+)
+const afterFailedFetch = dbFund('910001')
+check(
+  afterFailedFetch.equity_ratio === beforeFailedFetch.equity_ratio &&
+    afterFailedFetch.equity_ratio_source === beforeFailedFetch.equity_ratio_source,
+  '抓取失败保留旧权益系数与来源',
+  `${afterFailedFetch.equity_ratio}/${afterFailedFetch.equity_ratio_source}`
+)
+check(
+  afterFailedFetch.equity_ratio_as_of === beforeFailedFetch.equity_ratio_as_of,
+  '抓取失败保留原数据日期'
+)
+
+// 11.2 刷新全部：真实代码出现候选值，假代码逐行报错，批次继续
+const beforeBatch = dbFund('000001')
+check((await clickPageAction('刷新全部')) === true, '点击「刷新全部」')
+const batchDone = await waitFor(async () => {
+  const state = await readConfig()
+  if (state === null) return null
+  const real = state.rows.find((r) => r.code === '000001')
+  const fake = state.rows.find((r) => r.code === '910001')
+  const hasCandidate = typeof real?.candidateRatio === 'string' && real.candidateRatio !== ''
+  if (hasCandidate && real.candidateMeta !== '' && fake?.candidateError !== null && state.message?.includes('刷新完成')) {
+    return { state, real, fake }
+  }
+  return null
+}, 60000)
+check(batchDone !== null, '刷新全部完成：真实代码有候选值，假代码逐行报错且批次继续')
+if (batchDone !== null) {
+  check(
+    JSON.stringify(batchDone.real.candidateButtons) === JSON.stringify(['确认写入', '忽略']),
+    '候选值旁提供「确认写入」「忽略」',
+    batchDone.real.candidateButtons.join('/')
+  )
+  check(
+    batchDone.real.candidateMeta.includes('来源：东方财富') &&
+      reportDateOf(batchDone.real) !== null,
+    '候选值显示报告期与来源',
+    batchDone.real.candidateMeta
+  )
+  check(
+    dbFund('000001').equity_ratio === beforeBatch.equity_ratio &&
+      dbFund('000001').equity_ratio_source === beforeBatch.equity_ratio_source,
+    '用户确认前候选值不写库'
+  )
+}
+
+// 11.3 未改值确认：来源记为抓取，数据日期为报告期
+const candidatePercent = batchDone === null ? null : num(batchDone.real.candidateRatio)
+const candidateReportDate = batchDone === null ? null : reportDateOf(batchDone.real)
+check(
+  candidatePercent !== null && candidateReportDate !== null,
+  '能读取候选股票占净比与报告期',
+  `${String(candidatePercent)}% / ${String(candidateReportDate)}`
+)
+check((await clickRowButton('000001', '确认写入')) === true, '未改值点击「确认写入」')
+const savedAsFetch = await waitFor(() => {
+  const fund = dbFund('000001')
+  return fund.equity_ratio_source === 'fetch' && fund.equity_ratio_as_of === candidateReportDate
+    ? fund
+    : null
+}, 10000)
+check(savedAsFetch !== null, '未改值确认后来源记为抓取，数据日期为报告期')
+if (savedAsFetch !== null && candidatePercent !== null) {
+  check(
+    Math.abs(savedAsFetch.equity_ratio - candidatePercent / 100) < 1e-6,
+    '抓取系数按候选值原样写入',
+    String(savedAsFetch.equity_ratio)
+  )
+  const stateAfterFetch = await readConfig()
+  check(
+    stateAfterFetch?.message?.includes('来源：抓取') === true,
+    '确认提示说明来源为抓取',
+    stateAfterFetch?.message ?? '缺少提示'
+  )
+}
+
+// 11.4 改过值确认：来源记为手工，数据日期仍保留报告期
+check((await clickRowButton('000001', '抓取')) === true, '手工值场景再次抓取 000001')
+const secondCandidate = await waitForRow(
+  '000001',
+  (row) => typeof row.candidateRatio === 'string' && row.candidateRatio !== ''
+)
+check(secondCandidate !== null, '再次抓取出现候选值')
+const secondPercent = secondCandidate === null ? null : num(secondCandidate.candidateRatio)
+const secondReportDate = secondCandidate === null ? null : reportDateOf(secondCandidate)
+const modifiedPercent =
+  secondPercent === null ? 42 : Math.abs(secondPercent - 42) < 0.005 ? 43 : 42
+check(
+  (await setRowInput('000001', '.fund-config-candidate-ratio', String(modifiedPercent))) === true,
+  '修改候选值为不同数值',
+  `${modifiedPercent}%`
+)
+check((await clickRowButton('000001', '确认写入')) === true, '改值后点击「确认写入」')
+const savedAsManual = await waitFor(() => {
+  const fund = dbFund('000001')
+  return fund.equity_ratio_source === 'manual' &&
+    Math.abs(fund.equity_ratio - modifiedPercent / 100) < 1e-9
+    ? fund
+    : null
+}, 10000)
+check(savedAsManual !== null, '改过值确认后来源记为手工')
+if (savedAsManual !== null) {
+  check(
+    savedAsManual.equity_ratio_as_of === secondReportDate,
+    '改值确认仍保留报告期作为数据日期',
+    String(savedAsManual.equity_ratio_as_of)
+  )
+  const stateAfterManual = await readConfig()
+  check(
+    stateAfterManual?.message?.includes('来源：手工') === true,
+    '确认提示说明来源为手工',
+    stateAfterManual?.message ?? '缺少提示'
+  )
+}
+
+// 11.5 手工值不被静默覆盖：候选值出现期间库内手工值保持不变
+check((await clickRowButton('000001', '抓取')) === true, '手工值场景第三次抓取')
+const thirdCandidate = await waitForRow(
+  '000001',
+  (row) => typeof row.candidateRatio === 'string' && row.candidateRatio !== ''
+)
+check(thirdCandidate !== null, '候选值再次出现')
+await new Promise((resolve) => setTimeout(resolve, 500))
+const manualPreserved = dbFund('000001')
+check(
+  manualPreserved.equity_ratio_source === 'manual' &&
+    Math.abs(manualPreserved.equity_ratio - modifiedPercent / 100) < 1e-9,
+  '候选值未静默覆盖手工系数',
+  `${manualPreserved.equity_ratio}/${manualPreserved.equity_ratio_source}`
+)
+check((await clickRowButton('000001', '忽略')) === true, '点击「忽略」丢弃候选值')
+const ignored = await waitForRow('000001', (row) => row.candidateRatio === null, 5000)
+check(ignored !== null, '忽略后候选值消失')
+check(
+  dbFund('000001').equity_ratio_source === 'manual',
+  '忽略候选值后手工值仍在',
+  dbFund('000001').equity_ratio_source
+)
+
+// ---- 12. 收尾 ---------------------------------------------------------------
 for (const l of logs) console.error(`  console: ${l}`)
 cleanup()
 

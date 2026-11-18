@@ -648,6 +648,58 @@ body {
   margin-left: 8px;
 }
 
+/* 基金配置页：当前系数来源/报告期小字与抓取候选值 */
+.card-fund-config {
+  overflow-x: auto;
+}
+
+.fund-config-ratio-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.fund-config-ratio-meta,
+.fund-config-candidate-meta {
+  color: #86909c;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.fund-config-ratio-meta {
+  white-space: nowrap;
+}
+
+.fund-config-candidate {
+  min-width: 220px;
+  vertical-align: top;
+}
+
+.fund-config-candidate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fund-config-candidate-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inline-edit.fund-config-candidate-ratio {
+  width: 80px;
+}
+
+.fund-config-candidate-error {
+  color: #f53f3f;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.fund-config-candidate-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* 收益统计页图表 */
 .chart {
   width: 100%;

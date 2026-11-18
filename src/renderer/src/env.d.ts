@@ -9,7 +9,12 @@ import type {
   TransactionInput
 } from '../../engine'
 import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../../importer/types'
-import type { FundConfigData } from '../../main/fundConfigTypes'
+import type {
+  EquityFetchEvent,
+  EquityFetchResult,
+  EquityRatioConfirmInput,
+  FundConfigData
+} from '../../main/fundConfigTypes'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from '../../main/navTypes'
 import type { MigrationMeta } from '../../main/migrationService'
 import type { OverviewData } from '../../main/overviewTypes'
@@ -47,6 +52,10 @@ declare global {
       fundCreate: (input: FundInput) => Promise<void>
       fundConfigData: () => Promise<FundConfigData>
       fundConfigUpdate: (input: FundUpdateInput) => Promise<Fund>
+      fundConfigFetchEquity: (fundCode: string) => Promise<EquityFetchResult>
+      fundConfigFetchEquityAll: () => Promise<EquityFetchResult[]>
+      fundConfigConfirmEquity: (input: EquityRatioConfirmInput) => Promise<Fund>
+      fundConfigOnEquityFetchEvent: (callback: (event: EquityFetchEvent) => void) => () => void
       navData: () => Promise<NavData>
       navFetch: () => Promise<NavFetchResult>
       navPut: (input: NavInput) => Promise<void>
