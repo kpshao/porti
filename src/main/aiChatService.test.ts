@@ -119,6 +119,16 @@ describe('aiChatService — 落库与流式事件', () => {
     expect(h.service.history().map((m) => m.content)).toEqual(['问题', '回答'])
   })
 
+  it('发送的固定提示词引用配置桶目标与偏离，不再引用旧大类目标', async () => {
+    const h = setup(answering('回答'))
+    h.service.send('问题')
+    await h.waitForFinal()
+
+    const prompt = h.captured[0].messages[0].content
+    expect(prompt).toContain('配置桶目标与偏离')
+    expect(prompt).not.toContain('大类目标')
+  })
+
   it('请求顺序：固定 system prompt → <snapshot> → 最近历史 → 当前用户消息', async () => {
     const h = setup(answering('回答'))
     h.service.send('  当前问题  ')
@@ -165,6 +175,17 @@ describe('aiChatService — 落库与流式事件', () => {
     expect(history).toHaveLength(200)
     expect(history[0].content).toBe('m2')
     expect(history[history.length - 1].role).toBe('assistant')
+  })
+
+  it('发送不重写已有历史消息', async () => {
+    const h = setup(answering('新回答'))
+    seedMessages(h.db, 3)
+    const before = h.service.history()
+
+    h.service.send('新问题')
+    await h.waitForFinal()
+
+    expect(h.service.history().slice(0, before.length)).toEqual(before)
   })
 })
 
