@@ -55,8 +55,8 @@ function currentSnapshotPreview(): SnapshotPreview {
         funds: selectFunds(db),
         transactions: selectTransactions(db),
         navPoints: selectNavPoints(db),
-        // 与概览 / 导出同源（折算规则见 targetService.loadBucketTargets）
-        bucketTargets: loadBucketTargets(db).targets
+        // 与概览 / 导出同源（配置桶目标读取见 targetService.loadBucketTargets）
+        bucketTargets: loadBucketTargets(db)
       }
     : { funds: [], transactions: [], navPoints: [], bucketTargets: [] }
   return serializeSnapshot(buildAnalysisSnapshot({ ...data, today: todayString() }))

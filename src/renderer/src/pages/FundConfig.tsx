@@ -6,7 +6,7 @@ import {
   PRODUCT_FORMS
 } from '../../../engine'
 import type {
-  ClassifiedFund,
+  Fund,
   LedgerCategory,
   NormalizedFundUpdate,
   ProductForm
@@ -23,7 +23,7 @@ interface Draft {
   equityRatioText: string // 百分比文本，保存时换算为 0–1
 }
 
-function draftOf(fund: ClassifiedFund): Draft {
+function draftOf(fund: Fund): Draft {
   return {
     name: fund.name,
     productForm: fund.productForm,
@@ -48,7 +48,7 @@ export default function FundConfig(): React.JSX.Element {
     reload()
   }, [])
 
-  const startEdit = (fund: ClassifiedFund): void => {
+  const startEdit = (fund: Fund): void => {
     setError(null)
     setMessage(null)
     setEditingCode(fund.code)
@@ -62,7 +62,7 @@ export default function FundConfig(): React.JSX.Element {
 
   /** 保存一行：分类变更先确认（口径见 ADR-0004），改系数不弹确认；
    *  校验规则与主进程共用 normalizeFundUpdateInput。 */
-  const save = async (fund: ClassifiedFund): Promise<void> => {
+  const save = async (fund: Fund): Promise<void> => {
     if (draft === null) return
     setError(null)
     setMessage(null)

@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { computeAllocationComparison, convertLegacyCategoryTargets } from './allocation'
+import { computeAllocationComparison } from './allocation'
 import type { AllocationFund } from './allocation'
-import type { BucketTarget, CategoryTarget, FundPosition } from './types'
-
-function byBucket(targets: ReturnType<typeof convertLegacyCategoryTargets>): Record<string, number> {
-  return Object.fromEntries(targets.map((t) => [t.bucket, t.targetRatio]))
-}
+import type { BucketTarget, FundPosition } from './types'
 
 /** 构造持仓：只关心对比用到的字段，其余给中性值 */
 function mkPosition(
@@ -17,7 +13,6 @@ function mkPosition(
   return {
     fundCode,
     name: fundCode,
-    category: '权益',
     productForm: '权益',
     fundType: null,
     invested: netCost,
@@ -40,38 +35,6 @@ function mkFund(
 ): AllocationFund {
   return { code, ledgerCategory, equityRatio }
 }
-
-describe('convertLegacyCategoryTargets — 旧大类目标折算为配置桶目标', () => {
-  it('默认五类目标（25/45/20/5/5）：剔除流动性后归一化，固收+ 按 20% 拆入权益', () => {
-    const legacy: CategoryTarget[] = [
-      { category: '固守+', targetRatio: 0.25 },
-      { category: '纯债', targetRatio: 0.45 },
-      { category: '权益', targetRatio: 0.2 },
-      { category: '黄金', targetRatio: 0.05 },
-      { category: '流动性', targetRatio: 0.05 }
-    ]
-
-    const result = byBucket(convertLegacyCategoryTargets(legacy))
-
-    // 保留四类归一化：25/95、45/95、20/95、5/95；固收+ 的 20% 进权益、80% 进稳健
-    expect(result['稳健']).toBeCloseTo(65 / 95, 9)
-    expect(result['权益']).toBeCloseTo(25 / 95, 9)
-    expect(result['黄金']).toBeCloseTo(5 / 95, 9)
-    // 三桶合计恒为 100%（流动性目标被剔除）
-    expect(result['稳健'] + result['权益'] + result['黄金']).toBeCloseTo(1, 9)
-  })
-
-  it('未知旧类别不参与归一化（导入器可能写入数据源里的任意标签）', () => {
-    const result = byBucket(
-      convertLegacyCategoryTargets([
-        { category: '纯债', targetRatio: 0.5 },
-        { category: '股票型', targetRatio: 0.5 }
-      ])
-    )
-
-    expect(result).toEqual({ 稳健: 1, 权益: 0, 黄金: 0 })
-  })
-})
 
 describe('computeAllocationComparison — 三桶配置对比', () => {
   it('按权益系数把债/权益/黄金基金拆进三桶，四列与权益构成口径正确', () => {

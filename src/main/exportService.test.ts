@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest'
 import Database from 'better-sqlite3'
 import * as XLSX from 'xlsx'
 import { SCHEMA } from './schema'
-import { resolveLegacyCategory } from '../engine'
-import type { FundClassification } from '../engine'
+import { normalizeFundInput } from '../engine'
+import type { FundClassification, ProductForm } from '../engine'
 import { buildCsvContent, buildExportData, writeExportCsvs, writeExportExcel } from './exportService'
 import { insertFund } from './repo'
 import type { ExportSheet } from './exportService'
@@ -26,13 +26,12 @@ function seedFund(
   db: Database.Database,
   code: string,
   name: string,
-  label: string,
+  productForm: ProductForm,
   overrides: Partial<FundClassification> = {}
 ): void {
-  const { classification, compatCategory } = resolveLegacyCategory(label)!
   insertFund(
     db,
-    { code, name, category: compatCategory, fundType: null, ...classification, ...overrides },
+    { ...normalizeFundInput({ code, name, productForm, fundType: null }), ...overrides },
     '2026-01-01'
   )
 }
@@ -50,7 +49,7 @@ function seedBucketTargets(db: Database.Database, steady: number, equity: number
   insert.run('黄金', gold)
 }
 
-/** 种子库：两只基金（权益 + 固守+）、五笔流水（含卖出为 0 的边界外场景）、四条净值历史。
+/** 种子库：两只基金（权益 + 固收+）、五笔流水（含卖出为 0 的边界外场景）、四条净值历史。
  *  手算基准（独立于实现）：
  *  - 000001：净投入 3400、份额 300、最新净值 12.5 → 市值 3750、盈亏 350、盈亏比例 10.2941…%
  *  - 002065：净投入 20000、份额 18500、最新净值 1.234567 → 市值 22839.4895、盈亏 2839.4895、盈亏比例 14.1974…%
@@ -58,7 +57,7 @@ function seedBucketTargets(db: Database.Database, steady: number, equity: number
  */
 function seedDb(db: Database.Database): Database.Database {
   seedFund(db, '000001', '测试权益', '权益')
-  seedFund(db, '002065', '固收增强', '固守+', {
+  seedFund(db, '002065', '固收增强', '固收+', {
     equityRatio: 0.35,
     equityRatioSource: 'fetch',
     equityRatioAsOf: '2026-06-30'
@@ -171,10 +170,9 @@ describe('buildExportData — 概览表', () => {
     expect(ov.rows[12]).toEqual([]) // 明细段后紧跟空行 → 清仓与超卖都没混进来
   })
 
-  it('导出全部工作表都不再出现旧五类标签', () => {
+  it('导出产品形态与账本大类列，不再出现旧分类列', () => {
     const db = seedDb(freshDb())
-    // 旧「流动性」基金：迁移后是 债/纯债，且是在持持仓，确保它真的出现在导出表里
-    seedFund(db, '000009', '测试货基', '流动性')
+    seedFund(db, '000009', '测试货基', '纯债')
     insertTx(db, '2026-07-01', '买入', '000009', 1000, 1000, 1, null, null)
     db.prepare('INSERT INTO nav_history (fund_code, date, nav, source) VALUES (?,?,?,?)').run('000009', '2026-07-01', 1, 'manual')
 
@@ -183,10 +181,8 @@ describe('buildExportData — 概览表', () => {
     const texts = sheets.flatMap((s) => s.rows.flat()).filter((c): c is string => typeof c === 'string')
 
     expect(ov.rows.find((r) => r[0] === '000009')?.slice(0, 4)).toEqual(['000009', '测试货基', '纯债', '债'])
-    expect(texts).not.toContain('固守+')
-    expect(texts).not.toContain('流动性')
     expect(texts).not.toContain('大类') // 旧「大类」列已由产品形态 + 账本大类取代
-    expect(texts).toContain('固收+') // 新标签正常导出（产品形态列）
+    expect(texts).toContain('固收+') // 产品形态列
   })
 
   it('目标合计恰为 100% 时说明标注「无需归一化」', () => {
@@ -196,29 +192,6 @@ describe('buildExportData — 概览表', () => {
 
     const ov = sheetByName(buildExportData(db), '概览')
     const start = ov.rows.findIndex((r) => r[0] === '配置对比')
-    expect(ov.rows[start + 5]).toEqual([
-      '说明', '目标合计 100.00%，无需归一化；偏离按原始目标计算。'
-    ])
-  })
-
-  it('目标表未初始化时，导出与界面一致展示旧目标折算后的三桶（先剔除流动性再归一化）', () => {
-    const db = seedDb(freshDb())
-    db.prepare('DELETE FROM bucket_targets').run()
-    const legacyTargets: [string, number][] = [
-      ['固守+', 0.25], ['纯债', 0.45], ['权益', 0.2], ['黄金', 0.05], ['流动性', 0.05]
-    ]
-    for (const [category, ratio] of legacyTargets) {
-      db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run(category, ratio)
-    }
-
-    const ov = sheetByName(buildExportData(db), '概览')
-    const start = ov.rows.findIndex((r) => r[0] === '配置对比')
-    // 剔除流动性后按 0.95 归一化，再按固收+ 默认 20% 权益系数拆桶
-    expect(ov.rows.slice(start + 2, start + 5)).toEqual([
-      ['稳健', num(68.42, '0.00'), num(55.56, '0.00'), num(55.83, '0.00'), num(-12.59, '0.00')],
-      ['权益', num(26.32, '0.00'), num(44.44, '0.00'), num(44.17, '0.00'), num(17.85, '0.00')],
-      ['黄金', num(5.26, '0.00'), num(0, '0.00'), num(0, '0.00'), num(-5.26, '0.00')]
-    ])
     expect(ov.rows[start + 5]).toEqual([
       '说明', '目标合计 100.00%，无需归一化；偏离按原始目标计算。'
     ])

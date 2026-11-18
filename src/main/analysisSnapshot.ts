@@ -22,8 +22,8 @@ import {
 import type {
   AllocationBucket,
   BucketTarget,
-  ClassifiedFund,
   ConcentrationMetrics,
+  Fund,
   EquityRatioSourceLabel,
   FundPosition,
   LedgerCategory,
@@ -123,7 +123,7 @@ export interface AnalysisSnapshot {
 }
 
 export interface AnalysisSnapshotInput {
-  funds: ClassifiedFund[]
+  funds: Fund[]
   transactions: TransactionRow[]
   navPoints: NavPoint[]
   bucketTargets: BucketTarget[]

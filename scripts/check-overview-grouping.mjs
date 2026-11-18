@@ -23,8 +23,6 @@ const CDP = `http://127.0.0.1:${PORT}`
 
 /** 与 src/engine/classification.ts 的 PRODUCT_FORMS 保持一致（消费方按此声明顺序排序） */
 const PRODUCT_FORMS = ['固收+', '纯债', '权益', '黄金']
-/** 与 src/engine/compute.ts 的 OTHER_GROUP 保持一致 */
-const OTHER = '其他'
 
 const ELECTRON_BIN =
   process.platform === 'darwin'
@@ -45,9 +43,6 @@ function money(text) {
 }
 /** 舍入容差：每个显示值最多偏 0.005，两端各留一份 */
 const tol = (n) => 0.01 * n + 0.01
-
-/** 库里的产品形态 -> 表格中的组名（闭集之外归入「其他」） */
-const groupNameOf = (productForm) => (PRODUCT_FORMS.includes(productForm) ? productForm : OTHER)
 
 // ---- 1. 构建 ------------------------------------------------------------
 const build = spawnSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'inherit' })
@@ -75,27 +70,12 @@ const sourceVersion = existsSync(dbPath)
   ? Number(spawnSync('sqlite3', [dbPath, 'PRAGMA user_version']).stdout.toString().trim())
   : null
 
-// 独立事实来源：直接从库读 Fund.code -> product_form，用于交叉验证行落在正确的组里。
-// 旧库（v3 及以前）还没有 product_form 列：按旧五类兼容映射预判，迁移后的引擎应得到同一结果。
-const LEGACY_PRODUCT_FORM = {
-  '固守+': '固收+',
-  '固收+': '固收+',
-  纯债: '纯债',
-  流动性: '纯债',
-  权益: '权益',
-  黄金: '黄金'
-}
+/** 独立事实来源：直接读库的 Fund.code -> product_form，用于交叉验证行落在正确的组里。
+ *  必须在应用启动后读取：旧版数据库要先经过启动迁移才会出现 product_form 列。 */
 const fundProductForm = new Map()
-if (existsSync(dbPath)) {
-  const columns = spawnSync('sqlite3', [dbPath, 'PRAGMA table_info(funds)'])
-    .stdout.toString()
-    .split('\n')
-    .map((line) => line.split('|')[1])
-  const hasProductForm = columns.includes('product_form')
-  const q = spawnSync('sqlite3', [
-    dbPath,
-    hasProductForm ? 'SELECT code, product_form FROM funds' : 'SELECT code, category FROM funds'
-  ])
+function loadFundProductForms() {
+  if (!existsSync(dbPath)) return
+  const q = spawnSync('sqlite3', [dbPath, 'SELECT code, product_form FROM funds'])
   if (q.status !== 0) {
     console.error(`RED: sqlite3 读取失败：${q.stderr?.toString().trim()}`)
     cleanup()
@@ -104,8 +84,7 @@ if (existsSync(dbPath)) {
   for (const line of q.stdout.toString().split('\n')) {
     const [code, value] = line.split('|')
     if (!code || value === undefined) continue
-    const form = hasProductForm ? value.trim() : (LEGACY_PRODUCT_FORM[value.trim()] ?? OTHER)
-    fundProductForm.set(code.trim(), form)
+    fundProductForm.set(code.trim(), value.trim())
   }
 }
 
@@ -190,6 +169,7 @@ const windowInfo = await send('Browser.getWindowForTarget', { targetId: pageTarg
 )
 await send('Page.reload', { ignoreCache: true })
 await new Promise((r) => setTimeout(r, 1500))
+loadFundProductForms()
 
 /** 页面内执行并返回值 */
 const evalJs = async (expression) => {
@@ -339,19 +319,13 @@ check(
   '每组首行都有合并的「形态」单元格'
 )
 
-// 组序：PRODUCT_FORMS 声明顺序的子序列，「其他」若存在必在最后
-const expectedOrder = names.filter((n) => n !== OTHER)
-const idealOrder = PRODUCT_FORMS.filter((c) => expectedOrder.includes(c))
+// 组序：PRODUCT_FORMS 声明顺序的子序列
+const idealOrder = PRODUCT_FORMS.filter((c) => names.includes(c))
 check(
-  JSON.stringify(expectedOrder) === JSON.stringify(idealOrder),
+  JSON.stringify(names) === JSON.stringify(idealOrder),
   '组序为 PRODUCT_FORMS 声明顺序',
   `实际 ${names.join(' → ')}`
 )
-check(!names.includes(OTHER) || names[names.length - 1] === OTHER, '「其他」组置底')
-
-// 验收 #27：旧流动性组消失；固收+ 用新名称，不再出现旧拼写「固守+」
-check(!names.includes('流动性'), '不再出现旧「流动性」组', names.join(' → '))
-check(!names.includes('固守+'), '不再出现旧拼写「固守+」', names.join(' → '))
 
 check(
   state.groups.every((g) => g.rows.length > 0),
@@ -397,7 +371,7 @@ for (const g of state.groups) {
       unknownCode++
       continue
     }
-    if (groupNameOf(form) !== g.lead[0]?.text) {
+    if (form !== g.lead[0]?.text) {
       misplaced.push(`${r.code}(${form}) 落在「${g.lead[0]?.text}」`)
     }
   }
@@ -460,7 +434,7 @@ if (sourceVersion === 1) {
     .split('\n')
     .map((line) => line.split('|')[1])
     .filter(Boolean)
-  check(version === 5, '真实库副本启动后数据版本升到 5', `实际 ${version}`)
+  check(version === 6, '真实库副本启动后数据版本升到 6', `实际 ${version}`)
   check(!columns.includes('target_amount'), '真实库副本启动后 target_amount 列已删除', columns.join('/'))
   const backups = readdirSync(profileDir).filter((f) => f.startsWith('porti.db.bak-'))
   check(backups.length > 0, '删列前生成了 .bak 备份', backups.join(', '))

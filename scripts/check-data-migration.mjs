@@ -86,7 +86,7 @@ const profileA = mkdtempSync(join(tmpdir(), 'porti-migration-check-a-'))
   db.pragma('user_version = 1')
   db.prepare(
     `INSERT INTO funds (code, name, category, fund_type, target_amount, created_at)
-     VALUES ('002065', '测试基金', '固守+', NULL, NULL, '2026-01-01')`
+     VALUES ('002065', '测试基金', '纯债', NULL, NULL, '2026-01-01')`
   ).run()
   db.prepare(
     `INSERT INTO transactions (date, type, fund_code, amount, shares, nav, note, created_at, updated_at)
@@ -94,7 +94,7 @@ const profileA = mkdtempSync(join(tmpdir(), 'porti-migration-check-a-'))
   ).run()
   db.close()
 }
-// B/C：空 profile（应用启动自动建库，只有种子大类目标）
+// B/C：空 profile（应用启动自动建库，三桶目标为空）
 const profileB = mkdtempSync(join(tmpdir(), 'porti-migration-check-b-'))
 
 // ---- 3. 启动与 CDP 会话 --------------------------------------------------
@@ -247,8 +247,10 @@ async function shotWithState(session, label, file) {
     .map((t) => t.name)
   migrated.close()
   if (columns.includes('target_amount')) problems.push('A: 启动后 target_amount 列仍在')
-  if (version !== 5) problems.push(`A: 启动后数据版本应为 5，实际 ${version}`)
+  if (columns.includes('category')) problems.push('A: 启动后旧分类列仍在')
+  if (version !== 6) problems.push(`A: 启动后数据版本应为 6，实际 ${version}`)
   if (!tables.includes('bucket_targets')) problems.push('A: 升级后缺少 bucket_targets 表')
+  if (tables.includes('category_targets')) problems.push('A: 升级后旧目标表仍在')
   if (!readdirSync(profileA).some((f) => f.startsWith('porti.db.bak-'))) {
     problems.push('A: 删列前未生成 .bak 备份')
   }

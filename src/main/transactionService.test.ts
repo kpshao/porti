@@ -27,7 +27,7 @@ describe('createFund — 新建基金（按产品形态）', () => {
     const funds = selectFunds(db)
     expect(funds).toHaveLength(1)
     expect(funds[0]).toMatchObject({
-      code: '002065', name: '补零基金', category: '固守+', fundType: '二级债基'
+      code: '002065', name: '补零基金', productForm: '固收+', fundType: '二级债基'
     })
   })
 
@@ -39,7 +39,7 @@ describe('createFund — 新建基金（按产品形态）', () => {
     ).toThrow(/已存在/)
   })
 
-  it('产品形态派生账本大类、旧五类兼容值与默认权益系数', () => {
+  it('产品形态派生账本大类与默认权益系数', () => {
     const db = freshDb()
     const inputs = [
       ['000001', '纯债基金', '纯债'],
@@ -54,7 +54,6 @@ describe('createFund — 新建基金（按产品形态）', () => {
     expect(
       selectFunds(db).map((f) => ({
         code: f.code,
-        category: f.category,
         ledgerCategory: f.ledgerCategory,
         productForm: f.productForm,
         equityRatio: f.equityRatio,
@@ -62,10 +61,10 @@ describe('createFund — 新建基金（按产品形态）', () => {
         equityRatioAsOf: f.equityRatioAsOf
       }))
     ).toEqual([
-      { code: '000001', category: '纯债', ledgerCategory: '债', productForm: '纯债', equityRatio: 0, equityRatioSource: 'manual', equityRatioAsOf: null },
-      { code: '000002', category: '固守+', ledgerCategory: '债', productForm: '固收+', equityRatio: 0.2, equityRatioSource: 'manual', equityRatioAsOf: null },
-      { code: '000003', category: '权益', ledgerCategory: '权益', productForm: '权益', equityRatio: 1, equityRatioSource: 'manual', equityRatioAsOf: null },
-      { code: '000004', category: '黄金', ledgerCategory: '黄金', productForm: '黄金', equityRatio: 0, equityRatioSource: 'manual', equityRatioAsOf: null }
+      { code: '000001', ledgerCategory: '债', productForm: '纯债', equityRatio: 0, equityRatioSource: 'manual', equityRatioAsOf: null },
+      { code: '000002', ledgerCategory: '债', productForm: '固收+', equityRatio: 0.2, equityRatioSource: 'manual', equityRatioAsOf: null },
+      { code: '000003', ledgerCategory: '权益', productForm: '权益', equityRatio: 1, equityRatioSource: 'manual', equityRatioAsOf: null },
+      { code: '000004', ledgerCategory: '黄金', productForm: '黄金', equityRatio: 0, equityRatioSource: 'manual', equityRatioAsOf: null }
     ])
   })
 })

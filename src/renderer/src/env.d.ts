@@ -2,7 +2,7 @@
 
 import type {
   BucketTarget,
-  ClassifiedFund,
+  Fund,
   FundInput,
   FundSeriesRange,
   FundUpdateInput,
@@ -46,7 +46,7 @@ declare global {
       txDelete: (id: number) => Promise<void>
       fundCreate: (input: FundInput) => Promise<void>
       fundConfigData: () => Promise<FundConfigData>
-      fundConfigUpdate: (input: FundUpdateInput) => Promise<ClassifiedFund>
+      fundConfigUpdate: (input: FundUpdateInput) => Promise<Fund>
       navData: () => Promise<NavData>
       navFetch: () => Promise<NavFetchResult>
       navPut: (input: NavInput) => Promise<void>

@@ -161,12 +161,6 @@ body {
   line-height: 1.7;
 }
 
-/* 配置桶目标折算确认：说明文字 + 接受按钮 */
-.allocation-conversion p {
-  margin: 0 0 8px;
-  line-height: 1.8;
-}
-
 .btn {
   border: 1px solid #c9cdd4;
   background: #fff;
@@ -371,7 +365,7 @@ body {
   padding-right: 6px;
 }
 
-/* 组标签永不折行：「固守+」断成「固守 / +」在任何宽度下都是错的 */
+/* 组标签永不折行：产品形态标签断行在任何宽度下都是错的 */
 .table-positions .group-cell {
   white-space: nowrap;
 }

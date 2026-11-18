@@ -2,10 +2,10 @@
 
 import type Database from 'better-sqlite3'
 import { normalizeFundInput, normalizeTransactionInput } from '../engine'
-import type { ClassifiedFund, FundInput, TransactionInput } from '../engine'
+import type { Fund, FundInput, TransactionInput } from '../engine'
 import { insertFund } from './repo'
 
-export function createFund(db: Database.Database, input: FundInput): ClassifiedFund {
+export function createFund(db: Database.Database, input: FundInput): Fund {
   const fund = normalizeFundInput(input)
   const exists = db.prepare('SELECT 1 FROM funds WHERE code = ?').get(fund.code)
   if (exists !== undefined) throw new Error(`基金代码 ${fund.code} 已存在`)

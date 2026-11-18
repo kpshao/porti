@@ -8,7 +8,7 @@
 // 配置对比的三桶比例只统计在持基金（已清仓残留的净投入不进分子分母）。断言口径见
 // .scratch/return-breakdown/spec.md 与 issues/02-zero-holding-cleanup.md。
 //
-// 独立事实来源：系统 sqlite3 直读库，算出「谁交易过、谁还有份额、哪个大类已清空」，
+// 独立事实来源：系统 sqlite3 直读库，算出「谁交易过、谁还有份额、哪个产品形态已清空」，
 // DOM 只提供展示值——两者对不上就是 RED（照 scripts/check-overview-grouping.mjs 的模板）。
 //
 // 退出码：0 = 通过（含 SKIP：库中无已清仓基金，开关相关断言跳过）；1 = RED。
@@ -26,8 +26,6 @@ const CDP = `http://127.0.0.1:${PORT}`
 
 /** 与 src/engine/compute.ts 的 CLOSED_GROUP 保持一致 */
 const CLOSED_GROUP = '已清仓'
-/** 与 src/engine/validation.ts 的 CATEGORIES 保持一致 */
-const CATEGORIES = ['固守+', '纯债', '权益', '黄金', '流动性']
 
 const ELECTRON_BIN =
   process.platform === 'darwin'
@@ -70,11 +68,11 @@ if (hasRealData) {
 
 // 独立事实来源：每只基金的买卖金额（= 引擎的 invested − redeemed）与净份额
 //（份额按库内约定存负值，直接累加；分红类流水的 amount 不计入买卖金额，与引擎 hasTraded 同判据）
-const facts = new Map() // code -> { category, tradedAmount, shares }
+const facts = new Map() // code -> { productForm, tradedAmount, shares }
 if (existsSync(dbPath)) {
   const q = spawnSync('sqlite3', [
     dbPath,
-    `SELECT f.code, f.category,
+    `SELECT f.code, f.product_form,
             (SELECT COALESCE(SUM(CASE WHEN t.type IN ('买入','卖出') THEN t.amount ELSE 0 END), 0)
                FROM transactions t WHERE t.fund_code = f.code),
             (SELECT COALESCE(SUM(t.shares), 0) FROM transactions t WHERE t.fund_code = f.code)
@@ -86,10 +84,10 @@ if (existsSync(dbPath)) {
     process.exit(1)
   }
   for (const line of q.stdout.toString().split('\n')) {
-    const [code, category, tradedAmount, shares] = line.split('|')
+    const [code, productForm, tradedAmount, shares] = line.split('|')
     if (!code) continue
     facts.set(code.trim(), {
-      category: (category ?? '').trim(),
+      productForm: (productForm ?? '').trim(),
       tradedAmount: Number(tradedAmount),
       shares: Number(shares)
     })
@@ -105,12 +103,12 @@ const untradedFunds = [...facts.entries()]
   .map(([c]) => c)
 /** 在持：份额 > 0 */
 const heldFunds = [...facts.entries()].filter(([, f]) => f.shares > 0).map(([c]) => c)
-/** 已清空的大类：该大类下交易过的基金全无在持份额，且至少有一只交易过 */
-const tradedCategories = [...new Set([...closedFunds, ...heldFunds].map((c) => facts.get(c).category))]
-const categoriesOf = (codes) => new Set(codes.map((c) => facts.get(c).category))
-const heldCats = categoriesOf(heldFunds)
-const clearedCats = [...categoriesOf([...closedFunds, ...heldFunds])].filter(
-  (cat) => tradedCategories.includes(cat) && !heldCats.has(cat)
+/** 已清空的产品形态：该形态下交易过的基金全无在持份额，且至少有一只交易过 */
+const tradedForms = [...new Set([...closedFunds, ...heldFunds].map((c) => facts.get(c).productForm))]
+const formsOf = (codes) => new Set(codes.map((c) => facts.get(c).productForm))
+const heldForms = formsOf(heldFunds)
+const clearedForms = [...formsOf([...closedFunds, ...heldFunds])].filter(
+  (form) => tradedForms.includes(form) && !heldForms.has(form)
 )
 
 // ---- 3. 启动 Electron（剔除 ELECTRON_RUN_AS_NODE，防退化为纯 Node）-------
@@ -269,7 +267,7 @@ if (defaultCodes.length === 0 && heldFunds.length === 0) {
 }
 console.log(
   `事实来源（sqlite3）：在持 ${heldFunds.length} 只 / 已清仓 ${closedFunds.length} 只 / 从未建仓 ${untradedFunds.length} 只；` +
-    `已清空大类 [${clearedCats.join(', ') || '无'}]`
+    `已清空产品形态 [${clearedForms.join(', ') || '无'}]`
 )
 
 // ---- 5. 默认视图：零持仓基金不占行 ----------------------------------------

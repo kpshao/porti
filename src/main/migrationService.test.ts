@@ -3,8 +3,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
-import { resolveLegacyCategory } from '../engine'
 import { SCHEMA, SCHEMA_VERSION } from './schema'
+import { normalizeFundInput } from '../engine'
 import { insertFund } from './repo'
 import {
   createMigrationBundle,
@@ -18,15 +18,9 @@ function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'porti-migration-'))
 }
 
-/** 当前版本的基金行（旧大类 → 新模型字段由生产映射派生） */
-function insertFundRow(
-  db: Database.Database,
-  code: string,
-  name: string,
-  category: string
-): void {
-  const { classification } = resolveLegacyCategory(category)!
-  insertFund(db, { code, name, category, fundType: null, ...classification }, '2026-01-01')
+/** 当前版本的基金行 */
+function insertFundRow(db: Database.Database, code: string, name: string): void {
+  insertFund(db, normalizeFundInput({ code, name, productForm: '固收+', fundType: null }), '2026-01-01')
 }
 
 /** 造一个带一只基金 + 一笔流水的文件库（WAL 模式，与生产一致） */
@@ -35,7 +29,7 @@ function seedFileDb(path: string): Database.Database {
   db.pragma('journal_mode = WAL')
   db.exec(SCHEMA)
   db.pragma(`user_version = ${SCHEMA_VERSION}`)
-  insertFundRow(db, '002065', '测试基金', '固守+')
+  insertFundRow(db, '002065', '测试基金')
   db.prepare(
     `INSERT INTO transactions (date, type, fund_code, amount, shares, nav, note, created_at, updated_at)
      VALUES ('2026-01-02', '买入', '002065', 1000, 900, 1.1, NULL, '2026-01-02', '2026-01-02')`
@@ -153,7 +147,7 @@ describe('migrationService — 迁移包（.portibak）生成/校验/替换', ()
     const targetDb = seedFileDb(join(dir, 'target.db'))
     // 源库：两只基金 → 导出迁移包
     const source = seedFileDb(join(dir, 'source.db'))
-    insertFundRow(source, '002066', '第二只', '纯债')
+    insertFundRow(source, '002066', '第二只')
     const bundlePath = join(dir, 'bundle.portibak')
     await createMigrationBundle(source, bundlePath, '0.1.0')
     source.close()

@@ -7,8 +7,9 @@ import {
 } from '../engine/classification'
 import { ALLOCATION_BUCKETS } from '../engine/types'
 
-/** 当前 schema 版本（PRAGMA user_version）；版本间迁移见 schemaMigration.ts */
-export const SCHEMA_VERSION = 5
+/** 当前 schema 版本（PRAGMA user_version）；版本间迁移见 schemaMigration.ts。
+ *  v6 = 收缩旧五类模型（删除 funds.category 与 category_targets）。 */
+export const SCHEMA_VERSION = 6
 
 /** SQL IN 列表；字段值域唯一来源是 engine（classification.ts 与 types.ts） */
 const sqlIn = (values: readonly string[]): string => values.map((v) => `'${v}'`).join(',')
@@ -21,7 +22,7 @@ export const FUND_MODEL_CHECKS = {
   equityRatioSource: `equity_ratio_source IN (${sqlIn(EQUITY_RATIO_SOURCES)})`
 } as const
 
-/** v5 新增：配置桶目标表（稳健 / 权益 / 黄金）；初始化语义见 targetService.loadBucketTargets */
+/** v5 新增：配置桶目标表（稳健 / 权益 / 黄金）；读取与保存见 targetService */
 export const BUCKET_TARGETS_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS bucket_targets (
   bucket TEXT PRIMARY KEY CHECK (bucket IN (${sqlIn(ALLOCATION_BUCKETS)})),
@@ -50,7 +51,6 @@ export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS funds (
   code TEXT PRIMARY KEY,          -- 6 位基金代码，字符串存储防前导零丢失
   name TEXT NOT NULL,             -- 基金简称
-  category TEXT NOT NULL,         -- 旧五类兼容值：固守+/纯债/权益/黄金/流动性（过渡字段，见 classification.ts）
   fund_type TEXT,                 -- 基金类型：一级债基/二级债基/偏债混合/ETF/黄金/短债等
   ledger_category TEXT NOT NULL CHECK (${FUND_MODEL_CHECKS.ledgerCategory}), -- 账本大类
   product_form TEXT NOT NULL CHECK (${FUND_MODEL_CHECKS.productForm}), -- 产品形态
@@ -58,12 +58,6 @@ CREATE TABLE IF NOT EXISTS funds (
   equity_ratio_source TEXT NOT NULL CHECK (${FUND_MODEL_CHECKS.equityRatioSource}), -- 系数来源
   equity_ratio_as_of TEXT,        -- 系数数据日期（报告期或空）
   created_at TEXT NOT NULL
-);
-
--- 旧五类目标表（过渡字段，见 classification.ts）
-CREATE TABLE IF NOT EXISTS category_targets (
-  category TEXT PRIMARY KEY,      -- 固守+ / 纯债 / 权益 / 黄金 / 流动性
-  target_ratio REAL NOT NULL      -- 目标比例，如 0.25
 );
 
 ${BUCKET_TARGETS_TABLE_SQL}

@@ -71,7 +71,7 @@ describe('listFundConfigs — 基金配置页列表', () => {
 })
 
 describe('updateFund — 基金配置更新', () => {
-  it('只改名称：代码不变、分类与系数不变、兼容列保持', () => {
+  it('只改名称：代码不变、分类与系数不变', () => {
     const db = freshDb()
     createFund(db, { code: '000001', name: '旧名称', productForm: '固收+', fundType: null })
     updateFund(db, updateOf({ name: '  新名称  ', productForm: '固收+', ledgerCategory: '债', equityRatio: 0.2 }))
@@ -81,7 +81,6 @@ describe('updateFund — 基金配置更新', () => {
     expect(funds[0]).toMatchObject({
       code: '000001',
       name: '新名称',
-      category: '固守+',
       productForm: '固收+',
       ledgerCategory: '债',
       equityRatio: 0.2,
@@ -89,7 +88,7 @@ describe('updateFund — 基金配置更新', () => {
     })
   })
 
-  it('改产品形态与账本大类：兼容列与历史分组、配置桶一起重分类', () => {
+  it('改产品形态与账本大类：历史分组与配置桶一起重分类', () => {
     const db = freshDb()
     seedHeldFund(db)
     const before = groupPositionsByProductForm(positionsOf(db), selectTransactions(db), '2026-02-01')
@@ -101,7 +100,6 @@ describe('updateFund — 基金配置更新', () => {
     )
 
     expect(selectFunds(db)[0]).toMatchObject({
-      category: '权益',
       productForm: '权益',
       ledgerCategory: '权益',
       equityRatio: 1
@@ -118,20 +116,6 @@ describe('updateFund — 基金配置更新', () => {
     ])
     expect(comparison.rows.find((r) => r.bucket === '稳健')?.marketRatio).toBe(0)
     expect(comparison.rows.find((r) => r.bucket === '权益')?.marketRatio).toBe(1)
-  })
-
-  it('旧流动性基金被编辑后，兼容列归一为新产品形态对应的纯债', () => {
-    const db = freshDb()
-    seedHeldFund(db)
-    db.prepare("UPDATE funds SET category = '流动性' WHERE code = '000001'").run()
-
-    updateFund(db, updateOf({ name: '改名' }))
-
-    expect(selectFunds(db)[0]).toMatchObject({
-      category: '纯债',
-      productForm: '纯债',
-      ledgerCategory: '债'
-    })
   })
 
   it('产品形态与账本大类不一致时拒绝，且不写入任何字段', () => {
