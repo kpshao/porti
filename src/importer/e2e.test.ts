@@ -3,11 +3,25 @@
 
 import { describe, expect, it } from 'vitest'
 import { join } from 'path'
+import * as XLSX from 'xlsx'
 import Database from 'better-sqlite3'
 import { SCHEMA } from '../main/schema'
-import { selectFunds, selectNavPoints, selectTransactions } from '../main/repo'
-import { computePositions, computeTimeSeries, computeTotals } from '../engine'
-import { parseExcelFile } from './parse'
+import {
+  selectBucketTargets,
+  selectCategoryTargets,
+  selectFunds,
+  selectNavPoints,
+  selectTransactions
+} from '../main/repo'
+import {
+  ALLOCATION_BUCKETS,
+  computeAllocationComparison,
+  computePositions,
+  computeTimeSeries,
+  computeTotals,
+  groupPositionsByProductForm
+} from '../engine'
+import { parseExcelFile, parseWorkbook } from './parse'
 import { importToDb } from './write'
 import { reconcileAgainstExcel } from './reconcile'
 import type { CommitPayload } from './types'
@@ -18,7 +32,6 @@ function buildPlan(): CommitPayload {
   const parsed = parseExcelFile(FIXTURE)
   return {
     funds: parsed.funds,
-    categoryTargets: parsed.categoryTargets,
     transactions: parsed.transactionRows.map((r) => r.transaction),
     snapshots: parsed.snapshots,
     currentNavs: parsed.currentNavPoints,
@@ -37,10 +50,9 @@ describe('M1 端到端对账 — 真实 Excel → 导入 → 计算 → 逐项�
   const db = freshDb()
   const counts = importToDb(db, buildPlan())
 
-  it('导入计数：10 只基金、5 大类、69 笔流水、92 条快照重建 + 9 条当前净值', () => {
+  it('导入计数：10 只基金、69 笔流水、92 条快照重建 + 9 条当前净值', () => {
     expect(counts).toEqual({
       funds: 10,
-      categoryTargets: 5,
       transactions: 69,
       reconstructedNavs: 92,
       currentNavs: 9,
@@ -57,26 +69,36 @@ describe('M1 端到端对账 — 真实 Excel → 导入 → 计算 → 逐项�
   })
 
   it('导入同时写入新模型字段：旧五类映射到账本大类与产品形态', () => {
-    const byCategory = new Map(funds.map((f) => [f.category, f]))
-    expect(byCategory.get('纯债')).toMatchObject({
-      ledgerCategory: '债', productForm: '纯债', equityRatio: 0
+    const byCode = new Map(funds.map((f) => [f.code, f]))
+    expect(byCode.get('519680')).toMatchObject({
+      category: '纯债', ledgerCategory: '债', productForm: '纯债', equityRatio: 0
     })
-    expect(byCategory.get('固守+')).toMatchObject({
-      ledgerCategory: '债', productForm: '固收+', equityRatio: 0.2
+    // 旧「流动性」归入 债 / 纯债
+    expect(byCode.get('007824')).toMatchObject({
+      category: '纯债', ledgerCategory: '债', productForm: '纯债', equityRatio: 0
     })
-    expect(byCategory.get('权益')).toMatchObject({
-      ledgerCategory: '权益', productForm: '权益', equityRatio: 1
+    expect(byCode.get('110017')).toMatchObject({
+      category: '固守+', ledgerCategory: '债', productForm: '固收+', equityRatio: 0.2
     })
-    expect(byCategory.get('黄金')).toMatchObject({
-      ledgerCategory: '黄金', productForm: '黄金', equityRatio: 0
+    expect(byCode.get('563360')).toMatchObject({
+      category: '权益', ledgerCategory: '权益', productForm: '权益', equityRatio: 1
     })
-    expect(byCategory.get('流动性')).toMatchObject({
-      ledgerCategory: '债', productForm: '纯债', equityRatio: 0
+    expect(byCode.get('000217')).toMatchObject({
+      category: '黄金', ledgerCategory: '黄金', productForm: '黄金', equityRatio: 0
     })
     for (const f of funds) {
       expect(f.equityRatioSource).toBe('manual')
       expect(f.equityRatioAsOf).toBeNull()
     }
+  })
+
+  it('未出现在持仓概览的基金按基金类型推断产品形态，并在预览中标记', () => {
+    expect(funds.find((f) => f.code === '000385')).toMatchObject({
+      ledgerCategory: '债', productForm: '固收+', equityRatio: 0.2
+    })
+    const inferred = parsed.fixes.find((f) => f.kind === 'category-inferred')
+    expect(inferred).toBeDefined()
+    expect(inferred!.detail).toContain('000385')
   })
 
   const funds = selectFunds(db)
@@ -142,8 +164,135 @@ describe('M1 端到端对账 — 真实 Excel → 导入 → 计算 → 逐项�
     expect(series[14].totalMarketValue).toBeCloseTo(totals.totalAssets, 2)
   })
 
+  it('导入后的基金进入产品形态分组与三桶配置对比', () => {
+    const groups = groupPositionsByProductForm(positions, transactions, '2026-08-24')
+    expect(groups.map((g) => g.name)).toEqual(['固收+', '纯债', '权益', '黄金'])
+    expect(groups.flatMap((g) => g.positions)).toHaveLength(9)
+
+    const comparison = computeAllocationComparison(positions, funds, [
+      { bucket: '稳健', targetRatio: 0.6 },
+      { bucket: '权益', targetRatio: 0.35 },
+      { bucket: '黄金', targetRatio: 0.05 }
+    ])
+    const marketRatio = (bucket: (typeof ALLOCATION_BUCKETS)[number]): number =>
+      comparison.rows.find((r) => r.bucket === bucket)!.marketRatio!
+    // 期望值来自 Excel 持仓概览市值与默认权益系数（固收+ 的 20% 穿透进权益桶）
+    expect(marketRatio('稳健')).toBeCloseTo(0.7106, 4)
+    expect(marketRatio('权益')).toBeCloseTo(0.2210, 4)
+    expect(marketRatio('黄金')).toBeCloseTo(0.0683, 4)
+    expect(marketRatio('稳健') + marketRatio('权益') + marketRatio('黄金')).toBeCloseTo(1, 9)
+    expect(comparison.equityComposition.direct).toBeCloseTo(0.1692, 4)
+    expect(comparison.equityComposition.debtPassthrough).toBeCloseTo(0.0519, 4)
+  })
+
   it('整体对账通过', () => {
     expect(report.allMatch).toBe(true)
+  })
+})
+
+/** 最小五表工作簿：一只基金 + 持仓概览单个类别段（标签可注入） */
+function workbookWithCategory(label: string, fundType = '二级债基'): XLSX.WorkBook {
+  const wb = XLSX.utils.book_new()
+  const put = (name: string, rows: unknown[][]): void => {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name)
+  }
+  const overviewRow: unknown[] = [label, 0.5, null, null, null, '000010', '测试基金']
+  while (overviewRow.length < 18) overviewRow.push(null)
+  put('基金列表', [['代码', '名称', '类型'], ['000010', '测试基金', fundType]])
+  put('持仓概览', [
+    ['类别', '目标', '比例', '总市值', '比例', '基金代码', '基金简称'],
+    overviewRow
+  ])
+  put('交易流水', [['日期', '操作类型', '基金代码', '基金名称', '金额', '份额', '净值', '手续费', '备注']])
+  put('收益明细', [['日期', '基金代码', '基金名称', '当日收益', '累计收益', '市值']])
+  put('收益汇总', [['日期', null, null, '总市值']])
+  return wb
+}
+
+describe('旧五类与新标签端到端', () => {
+  it.each([
+    ['固守+', '固收+'],
+    ['固收+', '固收+'],
+    // 旧「流动性」归入 债 / 纯债
+    ['流动性', '纯债']
+  ])('「%s」导入为 债 / %s', (label, productForm) => {
+    const parsed = parseWorkbook(workbookWithCategory(label))
+    expect(parsed.warnings).toEqual([])
+
+    const db = freshDb()
+    importToDb(db, {
+      funds: parsed.funds,
+      transactions: parsed.transactionRows.map((r) => r.transaction),
+      snapshots: parsed.snapshots,
+      currentNavs: parsed.currentNavPoints,
+      expectation: parsed.expectation
+    })
+    expect(selectFunds(db)[0]).toMatchObject({
+      ledgerCategory: '债',
+      productForm,
+      category: productForm === '固收+' ? '固守+' : '纯债'
+    })
+    db.close()
+  })
+})
+
+describe('未知标签端到端', () => {
+  it('预览阶段警告并列出具体值；写入阶段拒绝且不写入数据', () => {
+    const parsed = parseWorkbook(workbookWithCategory('股票型'))
+    expect(parsed.warnings).toHaveLength(1)
+    expect(parsed.warnings[0].kind).toBe('unknown-category')
+    expect(parsed.warnings[0].detail).toContain('股票型')
+    expect(parsed.warnings[0].detail).toContain('000010')
+    expect(parsed.funds[0].productForm).toBeUndefined()
+
+    const db = freshDb()
+    expect(() =>
+      importToDb(db, {
+        funds: parsed.funds,
+        transactions: parsed.transactionRows.map((r) => r.transaction),
+        snapshots: parsed.snapshots,
+        currentNavs: parsed.currentNavPoints,
+        expectation: parsed.expectation
+      })
+    ).toThrow(/股票型.*000010/)
+    expect(selectFunds(db)).toEqual([])
+    db.close()
+  })
+})
+
+describe('导入忽略目标列', () => {
+  it('导入前后大类目标与配置桶目标保持不变', () => {
+    const db = freshDb()
+    db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run('权益', 0.3)
+    db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run('纯债', 0.7)
+    for (const [bucket, ratio] of [
+      ['稳健', 0.6],
+      ['权益', 0.3],
+      ['黄金', 0.1]
+    ] as const) {
+      db.prepare('INSERT INTO bucket_targets (bucket, target_ratio) VALUES (?,?)').run(bucket, ratio)
+    }
+
+    const counts = importToDb(db, buildPlan())
+
+    expect(counts.funds).toBe(10)
+    expect(selectCategoryTargets(db)).toEqual(
+      expect.arrayContaining([
+        { category: '纯债', targetRatio: 0.7 },
+        { category: '权益', targetRatio: 0.3 }
+      ])
+    )
+    expect(selectCategoryTargets(db)).toHaveLength(2)
+    expect(
+      selectBucketTargets(db).sort(
+        (a, b) => ALLOCATION_BUCKETS.indexOf(a.bucket) - ALLOCATION_BUCKETS.indexOf(b.bucket)
+      )
+    ).toEqual([
+      { bucket: '稳健', targetRatio: 0.6 },
+      { bucket: '权益', targetRatio: 0.3 },
+      { bucket: '黄金', targetRatio: 0.1 }
+    ])
+    db.close()
   })
 })
 

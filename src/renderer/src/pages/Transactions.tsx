@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { CommitPayload, ImportOutcome, ParseResult, SuspiciousField, TxData } from '../../../importer/types'
+import type {
+  CommitPayload,
+  FixKind,
+  ImportOutcome,
+  ParseResult,
+  SuspiciousField,
+  TxData
+} from '../../../importer/types'
 import type { Transaction, TransactionRow } from '../../../engine'
 import type { TransactionInput } from '../../../engine'
 import SummaryCards from '../components/SummaryCards'
@@ -15,13 +22,15 @@ type Edits = Record<string, Partial<Transaction>>
 
 type FormState = { mode: 'create' } | { mode: 'edit'; tx: TransactionRow } | null
 
-const FIX_KIND_LABEL: Record<string, string> = {
-  'code-zero-pad': '基金代码补前导零至 6 位',
-  'name-requery': '名称按代码从基金列表重查',
-  'snapshot-reconstruct': '收益快照重建为净值历史',
-  'current-nav-import': '持仓概览最新净值导入',
-  'field-normalize': '字段按库内约定归一化',
-  'row-skipped': '跳过行'
+/** 修复项展示元数据：标题与标签集中在一处，新增 FixKind 时由类型强制补齐 */
+const FIX_KIND_META: Record<FixKind, { label: string; tag: string }> = {
+  'code-zero-pad': { label: '基金代码补前导零至 6 位', tag: '修复' },
+  'name-requery': { label: '名称按代码从基金列表重查', tag: '修复' },
+  'snapshot-reconstruct': { label: '收益快照重建为净值历史', tag: '修复' },
+  'current-nav-import': { label: '持仓概览最新净值导入', tag: '修复' },
+  'field-normalize': { label: '字段按库内约定归一化', tag: '修复' },
+  'category-inferred': { label: '按基金类型推断产品形态', tag: '推断' },
+  'row-skipped': { label: '跳过行', tag: '跳过' }
 }
 
 const SUSPICIOUS_FIELD_LABEL: Record<SuspiciousField['field'], string> = {
@@ -118,7 +127,6 @@ export default function Transactions(): React.JSX.Element {
       )
       const result = await window.api.commitImport({
         funds: parse.funds,
-        categoryTargets: parse.categoryTargets,
         transactions,
         snapshots: parse.snapshots,
         currentNavs: parse.currentNavPoints,
@@ -222,12 +230,23 @@ export default function Transactions(): React.JSX.Element {
             当前净值 {parse.summary.currentNavCount} 条。
           </p>
 
+          {parse.warnings.length > 0 && (
+            <div className="banner banner-error import-warnings">
+              <strong>分类无法识别，请先在 Excel 中修正后重新导入：</strong>
+              <ul>
+                {parse.warnings.map((w, i) => (
+                  <li key={i}>{w.detail}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <h3>自动修复项（{parse.fixes.length}）</h3>
           <ul className="fix-list">
             {parse.fixes.map((f, i) => (
               <li key={i}>
-                <span className="fix-tag">{f.kind === 'row-skipped' ? '跳过' : '修复'}</span>
-                {FIX_KIND_LABEL[f.kind] ?? f.detail} — {f.count} 处
+                <span className="fix-tag">{FIX_KIND_META[f.kind].tag}</span>
+                {FIX_KIND_META[f.kind].label} — {f.count} 处
                 <div className="muted fix-detail">{f.detail}</div>
               </li>
             ))}
@@ -299,7 +318,16 @@ export default function Transactions(): React.JSX.Element {
           )}
 
           <div className="preview-actions">
-            <button className="btn btn-primary" onClick={commit} disabled={busy !== null}>
+            <button
+              className="btn btn-primary"
+              onClick={commit}
+              disabled={busy !== null || parse.warnings.length > 0}
+              title={
+                parse.warnings.length > 0
+                  ? '存在无法识别的分类，请先在 Excel 中修正后重新导入'
+                  : undefined
+              }
+            >
               {busy === 'committing' ? '导入中…' : '确认导入'}
             </button>
             <button className="btn" onClick={cancelPreview} disabled={busy !== null}>

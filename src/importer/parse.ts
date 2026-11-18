@@ -2,12 +2,20 @@
 // 纯函数层（I/O 接缝），读取真实 Excel 并按 spec 导入规则清洗
 
 import * as XLSX from 'xlsx'
-import type { CategoryTarget, Fund, OperationType, ReconstructedNav, Snapshot, Transaction } from '../engine'
-import { daysBetween, normalizeFundCode, OPERATION_TYPES, reconstructNavPoints } from '../engine'
+import type { Fund, OperationType, ProductForm, ReconstructedNav, Snapshot, Transaction } from '../engine'
+import {
+  COMPAT_CATEGORY_BY_PRODUCT_FORM,
+  daysBetween,
+  normalizeFundCode,
+  OPERATION_TYPES,
+  reconstructNavPoints,
+  resolveProductFormLabel
+} from '../engine'
 import type {
   ExcelExpectation,
   FixItem,
   FundExpectation,
+  ImportWarning,
   ParseResult,
   ParsedTransactionRow,
   SuspiciousItem,
@@ -22,16 +30,31 @@ const NAV_DEVIATION_THRESHOLD = 0.1
 /** 可疑判定的参考净值搜索窗口（天） */
 const NAV_REFERENCE_WINDOW_DAYS = 45
 
-/** 基金类型 → 资产大类回退映射（仅用于持仓概览未覆盖的基金） */
-const TYPE_TO_CATEGORY: Record<string, string> = {
+/** 基金类型 → 产品形态回退映射（仅用于持仓概览未覆盖的基金；结果在预览中标记为推断） */
+const TYPE_TO_PRODUCT_FORM: Record<string, ProductForm> = {
   一级债基: '纯债',
   纯债: '纯债',
-  短债: '流动性',
-  二级债基: '固守+',
-  偏债混合: '固守+',
+  短债: '纯债',
+  二级债基: '固收+',
+  偏债混合: '固收+',
   红利ETF: '权益',
   宽基指数: '权益',
   黄金: '黄金'
+}
+
+/** 解析期基金：带产品形态与旧五类兼容列写法；写入层据此走统一校验 */
+function parsedFund(
+  code: string,
+  f: { name: string; fundType: string | null },
+  productForm: ProductForm
+): Fund {
+  return {
+    code,
+    name: f.name,
+    category: COMPAT_CATEGORY_BY_PRODUCT_FORM[productForm],
+    fundType: f.fundType,
+    productForm
+  }
 }
 
 /** Excel 日期序列号 → YYYY-MM-DD（以 UTC 计算避免时区偏移）。
@@ -109,23 +132,16 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
     fundMap.set(code, { name: name || code, fundType: r[2] == null ? null : String(r[2]).trim() })
   }
 
-  // ---------- 持仓概览 → 大类/目标比例/当前净值/对账基准 ----------
-  const categoryByCode = new Map<string, string>()
+  // ---------- 持仓概览 → 大类标签/当前净值/对账基准（目标列完全忽略） ----------
+  const categoryLabelByCode = new Map<string, string>() // 段内基金继承的原始类别标签
   const currentNavByCode = new Map<string, number>()
-  const categoryTargetMap = new Map<string, number>()
   const fundExpectations: FundExpectation[] = []
   let totalsExpectation: TotalsExpectation | null = null
   let currentCategory: string | null = null
-  let currentTargetRatio: number | null = null
 
   for (const r of readSheet(wb, '持仓概览').slice(1)) {
     if (isEmptyRow(r, 18)) continue
     if (typeof r[0] === 'string' && r[0].trim() !== '') currentCategory = r[0].trim()
-    const ratio = toNumber(r[1])
-    if (ratio !== null) currentTargetRatio = ratio
-    if (currentCategory !== null && currentTargetRatio !== null && !categoryTargetMap.has(currentCategory)) {
-      categoryTargetMap.set(currentCategory, currentTargetRatio)
-    }
     if (String(r[5] ?? '').trim() === '汇总') {
       totalsExpectation = {
         totalNetCost: toNumber(r[10]) ?? 0,
@@ -137,8 +153,7 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
     }
     const code = normalizeFundCode(r[5])
     if (code === null) continue
-    const fundType = fundMap.get(code)?.fundType ?? null
-    categoryByCode.set(code, currentCategory ?? (fundType !== null ? TYPE_TO_CATEGORY[fundType] : undefined) ?? '权益')
+    if (currentCategory !== null) categoryLabelByCode.set(code, currentCategory)
     const nav = toNumber(r[12])
     if (nav !== null) currentNavByCode.set(code, nav)
     fundExpectations.push({
@@ -153,10 +168,6 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
       pnlRatio: toNumber(r[15]) ?? 0
     })
   }
-  const categoryTargets: CategoryTarget[] = [...categoryTargetMap].map(([category, targetRatio]) => ({
-    category,
-    targetRatio
-  }))
 
   // ---------- 交易流水 ----------
   const transactionRows: ParsedTransactionRow[] = []
@@ -338,15 +349,67 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
     })
   }
 
-  const funds: Fund[] = [...fundMap].map(([code, f]) => ({
-    code,
-    name: f.name,
-    category:
-      categoryByCode.get(code) ??
-      (f.fundType !== null ? TYPE_TO_CATEGORY[f.fundType] : undefined) ??
-      '权益',
-    fundType: f.fundType
-  }))
+  // ---------- 大类/产品形态标签解析：旧五类与新标签 → 产品形态；未知标签只警告，不兜底 ----------
+  const funds: Fund[] = []
+  const unknownCategories = new Map<string, string[]>() // 原始标签 → 基金代码
+  const unknownTypes: { code: string; fundType: string | null }[] = []
+  const inferredCategories: { code: string; fundType: string; productForm: ProductForm }[] = []
+
+  for (const [code, f] of fundMap) {
+    const label = categoryLabelByCode.get(code)
+    if (label !== undefined) {
+      const productForm = resolveProductFormLabel(label)
+      if (productForm !== null) {
+        funds.push(parsedFund(code, f, productForm))
+      } else {
+        const codes = unknownCategories.get(label)
+        if (codes === undefined) unknownCategories.set(label, [code])
+        else codes.push(code)
+        // 保留原始标签供预览定位；productForm 缺失，写入时由统一校验拒绝
+        funds.push({ code, name: f.name, category: label, fundType: f.fundType })
+      }
+      continue
+    }
+    if (f.fundType !== null) {
+      const productForm = TYPE_TO_PRODUCT_FORM[f.fundType]
+      if (productForm !== undefined) {
+        inferredCategories.push({ code, fundType: f.fundType, productForm })
+        funds.push(parsedFund(code, f, productForm))
+        continue
+      }
+    }
+    unknownTypes.push({ code, fundType: f.fundType })
+    funds.push({ code, name: f.name, category: '', fundType: f.fundType })
+  }
+
+  if (inferredCategories.length > 0) {
+    const list = inferredCategories
+      .map((r) => `${r.code}（${r.fundType} → ${r.productForm}）`)
+      .join('、')
+    fixes.push({
+      kind: 'category-inferred',
+      detail: `以下基金未出现在持仓概览，已按基金类型推断产品形态：${list}`,
+      count: inferredCategories.length
+    })
+  }
+
+  const warnings: ImportWarning[] = []
+  if (unknownCategories.size > 0) {
+    const list = [...unknownCategories]
+      .map(([label, codes]) => `「${label}」（基金 ${codes.join('、')}）`)
+      .join('、')
+    warnings.push({
+      kind: 'unknown-category',
+      detail: `持仓概览中的大类标签无法识别：${list}；请先在 Excel 中修正后重新导入`
+    })
+  }
+  if (unknownTypes.length > 0) {
+    const list = unknownTypes.map((r) => `${r.code}（基金类型：${r.fundType ?? '空'}）`).join('、')
+    warnings.push({
+      kind: 'unknown-fund-type',
+      detail: `以下基金未出现在持仓概览，且基金类型无法映射到产品形态：${list}；请先在 Excel 中修正后重新导入`
+    })
+  }
 
   const expectation: ExcelExpectation = {
     totals: totalsExpectation ?? { totalNetCost: 0, totalAssets: 0, totalPnl: 0, totalReturnRate: 0 },
@@ -356,13 +419,13 @@ export function parseWorkbook(wb: XLSX.WorkBook): ParseResult {
 
   return {
     funds,
-    categoryTargets,
     transactionRows,
     snapshots,
     reconstructedNavs,
     skippedSnapshots: skipped,
     currentNavPoints,
     fixes,
+    warnings,
     suspicious,
     expectation,
     summary: {

@@ -5,8 +5,7 @@ import { ALLOCATION_BUCKETS, convertLegacyCategoryTargets } from '../engine'
 import type { AllocationBucket, BucketTarget, CategoryTarget } from '../engine'
 import { selectBucketTargets, selectCategoryTargets } from './repo'
 
-/** 默认大类目标（ticket #06 验收值；Excel 导入会用导入值覆盖）。
- *  新库只种子旧目标；配置桶目标在首次读取时折算（见 loadBucketTargets）。 */
+/** 默认大类目标（ticket #06 验收值）。新库只种子旧目标；配置桶目标在首次读取时折算（见 loadBucketTargets）。 */
 export const DEFAULT_CATEGORY_TARGETS: CategoryTarget[] = [
   { category: '固守+', targetRatio: 0.25 },
   { category: '纯债', targetRatio: 0.45 },

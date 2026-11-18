@@ -31,7 +31,7 @@ export function initDatabase(): void {
       }
     }
     db.exec(SCHEMA)
-    seedDefaultCategoryTargets(db) // 新库种子默认大类目标（Excel 导入会用导入值覆盖）
+    seedDefaultCategoryTargets(db) // 新库种子默认大类目标
     db.pragma(`user_version = ${SCHEMA_VERSION}`)
   }
 }

@@ -48,8 +48,8 @@ export interface FundClassification {
 }
 
 /**
- * 旧大类写法 → 产品形态。兼容列写法统一来自 COMPAT_CATEGORY_BY_PRODUCT_FORM，
- * 只有旧「流动性」保留原写法（它不属于任何产品形态）。
+ * 旧五类/新标签写法 → 产品形态。兼容列写法统一来自 COMPAT_CATEGORY_BY_PRODUCT_FORM，
+ * 只有旧「流动性」保留原写法（它不属于任何产品形态）。新标签「固收+」是「固守+」的别名。
  */
 const LEGACY_PRODUCT_FORM: Record<string, ProductForm> = {
   '固守+': '固收+',
@@ -62,6 +62,14 @@ const LEGACY_PRODUCT_FORM: Record<string, ProductForm> = {
 
 /** 兼容映射的全部旧大类写法（迁移预检与回填共用） */
 export const LEGACY_FUND_CATEGORIES = Object.keys(LEGACY_PRODUCT_FORM)
+
+/**
+ * 大类/产品形态标签（旧五类或新标签）→ 产品形态；无法识别返回 null。
+ * 标签白名单只在本表维护，导入预览与写入共用。
+ */
+export function resolveProductFormLabel(label: string): ProductForm | null {
+  return LEGACY_PRODUCT_FORM[label] ?? null
+}
 
 /** 基金的产品形态：新模型字段优先，缺失时由旧大类兼容映射派生；无法识别返回 null（不猜测）。 */
 export function deriveProductForm(
@@ -82,8 +90,8 @@ export interface LegacyCategoryResolution {
  * 由调用方决定报错方式（迁移中止 / 导入报错）。
  */
 export function resolveLegacyCategory(category: string): LegacyCategoryResolution | null {
-  const productForm = LEGACY_PRODUCT_FORM[category]
-  if (productForm === undefined) return null
+  const productForm = resolveProductFormLabel(category)
+  if (productForm === null) return null
   return {
     compatCategory:
       category === '流动性' ? '流动性' : COMPAT_CATEGORY_BY_PRODUCT_FORM[productForm],
