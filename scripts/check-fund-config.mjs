@@ -867,9 +867,9 @@ if (batchDone !== null) {
     batchDone.real.candidateButtons.join('/')
   )
   check(
-    batchDone.real.candidateMeta.includes('来源：东方财富') &&
+    batchDone.real.candidateMeta.includes('数据源：东方财富') &&
       reportDateOf(batchDone.real) !== null,
-    '候选值显示报告期与来源',
+    '候选值显示报告期与数据源',
     batchDone.real.candidateMeta
   )
   check(
@@ -901,12 +901,11 @@ if (savedAsFetch !== null && candidatePercent !== null) {
     '抓取系数按候选值原样写入',
     String(savedAsFetch.equity_ratio)
   )
-  const stateAfterFetch = await readConfig()
-  check(
-    stateAfterFetch?.message?.includes('来源：抓取') === true,
-    '确认提示说明来源为抓取',
-    stateAfterFetch?.message ?? '缺少提示'
-  )
+  const stateAfterFetch = await waitFor(async () => {
+    const state = await readConfig()
+    return state?.message?.includes('来源：抓取') === true ? state : null
+  }, 5000)
+  check(stateAfterFetch !== null, '确认提示说明来源为抓取', stateAfterFetch?.message ?? '缺少提示')
 }
 
 // 11.4 改过值确认：来源记为手工，数据日期仍保留报告期
@@ -940,12 +939,11 @@ if (savedAsManual !== null) {
     '改值确认仍保留报告期作为数据日期',
     String(savedAsManual.equity_ratio_as_of)
   )
-  const stateAfterManual = await readConfig()
-  check(
-    stateAfterManual?.message?.includes('来源：手工') === true,
-    '确认提示说明来源为手工',
-    stateAfterManual?.message ?? '缺少提示'
-  )
+  const stateAfterManual = await waitFor(async () => {
+    const state = await readConfig()
+    return state?.message?.includes('来源：手工') === true ? state : null
+  }, 5000)
+  check(stateAfterManual !== null, '确认提示说明来源为手工', stateAfterManual?.message ?? '缺少提示')
 }
 
 // 11.5 手工值不被静默覆盖：候选值出现期间库内手工值保持不变

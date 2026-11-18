@@ -54,6 +54,8 @@ const api = {
     ipcRenderer.invoke('fund-config:fetch-equity-all'),
   fundConfigConfirmEquity: (input: EquityRatioConfirmInput): Promise<Fund> =>
     ipcRenderer.invoke('fund-config:confirm-equity', input),
+  fundConfigDiscardEquity: (fundCode: string): Promise<void> =>
+    ipcRenderer.invoke('fund-config:discard-equity', fundCode),
   fundConfigOnEquityFetchEvent: (callback: (event: EquityFetchEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, event: EquityFetchEvent): void =>
       callback(event)

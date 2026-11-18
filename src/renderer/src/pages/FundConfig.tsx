@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import {
+  EQUITY_RATIO_ERROR_TEXT,
   EQUITY_RATIO_SOURCE_LABEL,
+  isValidEquityRatio,
   LEDGER_CATEGORIES,
   LEDGER_CATEGORY_BY_PRODUCT_FORM,
   normalizeFundUpdateInput,
@@ -12,7 +14,7 @@ import type {
   NormalizedFundUpdate,
   ProductForm
 } from '../../../engine'
-import { EQUITY_FETCH_SOURCE_LABEL } from '../../../main/fundConfigTypes'
+import { EQUITY_FETCH_DATA_SOURCE_LABEL } from '../../../main/fundConfigTypes'
 import type {
   EquityFetchEvent,
   EquityFetchResult,
@@ -169,7 +171,7 @@ export default function FundConfig(): React.JSX.Element {
     }
   }
 
-  /** 确认候选值：未改值来源记为抓取，改过记为手工；两种都保留报告期 */
+  /** 确认候选值并写入权益系数（来源与数据日期规则见 ADR-0006） */
   const confirmCandidate = async (fund: Fund): Promise<void> => {
     const row = fetchStates[fund.code]
     if (row === undefined || row.status !== 'candidate' || actionsDisabled) return
@@ -178,19 +180,17 @@ export default function FundConfig(): React.JSX.Element {
 
     const text = row.ratioText.trim()
     const ratio = text === '' ? Number.NaN : Number(text) / 100
-    if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
+    if (!isValidEquityRatio(ratio)) {
       setFetchStates((prev) => ({
         ...prev,
-        [fund.code]: { ...row, error: '权益系数需为 0 到 100% 之间的数字' }
+        [fund.code]: { ...row, error: EQUITY_RATIO_ERROR_TEXT }
       }))
       return
     }
 
     const input: EquityRatioConfirmInput = {
       fundCode: fund.code,
-      fetchedRatio: row.candidate.stockRatio,
-      confirmedRatio: ratio,
-      reportDate: row.candidate.reportDate
+      confirmedRatio: ratio
     }
     setBusy(true)
     try {
@@ -208,6 +208,12 @@ export default function FundConfig(): React.JSX.Element {
     } finally {
       setBusy(false)
     }
+  }
+
+  /** 忽略候选值：同时清除主进程内存中的候选值 */
+  const ignoreCandidate = (code: string): void => {
+    void window.api.fundConfigDiscardEquity(code).catch(() => {})
+    clearFetchState(code)
   }
 
   /** 保存一行：分类变更先确认（口径见 ADR-0004），改系数不弹确认；
@@ -421,7 +427,7 @@ export default function FundConfig(): React.JSX.Element {
                               min="0"
                               max="100"
                               value={fetchRow.ratioText}
-                              disabled={busy}
+                              disabled={busy || fetchMode !== null}
                               onChange={(e) =>
                                 setFetchStates((prev) => ({
                                   ...prev,
@@ -436,8 +442,8 @@ export default function FundConfig(): React.JSX.Element {
                             <span>%</span>
                           </div>
                           <div className="fund-config-candidate-meta">
-                            报告期 {fetchRow.candidate.reportDate} · 来源：
-                            {EQUITY_FETCH_SOURCE_LABEL[fetchRow.candidate.dataSource]}
+                            报告期 {fetchRow.candidate.reportDate} · 数据源：
+                            {EQUITY_FETCH_DATA_SOURCE_LABEL[fetchRow.candidate.dataSource]}
                             {fetchRow.candidate.includesDepositaryReceipts ? '（含存托凭证）' : ''}
                           </div>
                           {fetchRow.error !== null && (
@@ -447,14 +453,14 @@ export default function FundConfig(): React.JSX.Element {
                             <button
                               className="btn btn-compact btn-primary"
                               onClick={() => void confirmCandidate(fund)}
-                              disabled={busy}
+                              disabled={busy || fetchMode !== null}
                             >
                               确认写入
                             </button>
                             <button
                               className="btn btn-compact"
-                              onClick={() => clearFetchState(fund.code)}
-                              disabled={busy}
+                              onClick={() => ignoreCandidate(fund.code)}
+                              disabled={busy || fetchMode !== null}
                             >
                               忽略
                             </button>

@@ -39,5 +39,5 @@ export async function fetchNavQuotes(
   return parseNavQuoteList(body)
 }
 
-/** 默认 HTTP 实现（Node/Electron 全局 fetch + AbortController 超时） */
+/** 净值抓取的默认 HTTP 实现 */
 export const defaultHttpGet = createHttpGet({ label: '净值接口' })

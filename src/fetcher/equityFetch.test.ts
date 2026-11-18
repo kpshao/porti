@@ -151,44 +151,98 @@ describe('defaultEquityHttpGet — 默认 HTTP 实现（stub fetch，不联网�
     vi.unstubAllGlobals()
   })
 
+  const responseOf = (overrides: Record<string, unknown> = {}) => ({
+    ok: true,
+    status: 200,
+    url: 'https://fund.eastmoney.com/pingzhongdata/000001.js',
+    headers: new Headers(),
+    body: null,
+    text: async () => 'body',
+    ...overrides
+  })
+
   it('返回响应体文本', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        url: 'https://fund.eastmoney.com/pingzhongdata/000001.js',
-        text: async () => 'body'
-      })
-    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(responseOf()))
     await expect(defaultEquityHttpGet(buildPingzhongDataUrl('000001'), 1000)).resolves.toBe('body')
   })
 
-  it('重定向到非允许域名时拒绝', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        url: 'https://evil.example.com/fund.js',
-        text: async () => 'body'
+  it('重定向目标不在允许域名时，在发起第二次请求前终止', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      responseOf({
+        ok: false,
+        status: 302,
+        headers: new Headers({ location: 'https://evil.example.com/fund.js' })
       })
     )
+    vi.stubGlobal('fetch', fetchMock)
+
     await expect(defaultEquityHttpGet(buildPingzhongDataUrl('000001'), 1000)).rejects.toThrow(
-      /非允许域名/
+      /非允许地址/
     )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('响应超过大小上限时拒绝', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        url: 'https://fund.eastmoney.com/pingzhongdata/000001.js',
-        text: async () => 'a'.repeat(2_000_001)
+  it('允许域名但非 https 的重定向目标也拒绝', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      responseOf({
+        ok: false,
+        status: 302,
+        headers: new Headers({ location: 'http://fund.eastmoney.com/notfound.html' })
       })
     )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(defaultEquityHttpGet(buildPingzhongDataUrl('000001'), 1000)).rejects.toThrow(
+      /非允许地址/
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('允许域名内的重定向手动跟随', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        responseOf({
+          ok: false,
+          status: 302,
+          headers: new Headers({ location: 'https://fund.eastmoney.com/notfound.html' })
+        })
+      )
+      .mockResolvedValueOnce(
+        responseOf({ url: 'https://fund.eastmoney.com/notfound.html', text: async () => 'redirected' })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(defaultEquityHttpGet(buildPingzhongDataUrl('999999'), 1000)).resolves.toBe(
+      'redirected'
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('Content-Length 超过上限时在读取响应体前拒绝', async () => {
+    const text = vi.fn(async () => 'body')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        responseOf({ headers: new Headers({ 'content-length': '2000001' }), text })
+      )
+    )
+    await expect(defaultEquityHttpGet(buildPingzhongDataUrl('000001'), 1000)).rejects.toThrow(
+      /响应过大/
+    )
+    expect(text).not.toHaveBeenCalled()
+  })
+
+  it('响应体流式读取超过上限时取消', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(1_500_000))
+        controller.enqueue(new Uint8Array(600_000))
+        controller.close()
+      }
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(responseOf({ body })))
+
     await expect(defaultEquityHttpGet(buildPingzhongDataUrl('000001'), 1000)).rejects.toThrow(
       /响应过大/
     )

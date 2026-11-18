@@ -55,6 +55,7 @@ declare global {
       fundConfigFetchEquity: (fundCode: string) => Promise<EquityFetchResult>
       fundConfigFetchEquityAll: () => Promise<EquityFetchResult[]>
       fundConfigConfirmEquity: (input: EquityRatioConfirmInput) => Promise<Fund>
+      fundConfigDiscardEquity: (fundCode: string) => Promise<void>
       fundConfigOnEquityFetchEvent: (callback: (event: EquityFetchEvent) => void) => () => void
       navData: () => Promise<NavData>
       navFetch: () => Promise<NavFetchResult>

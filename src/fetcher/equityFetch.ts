@@ -30,7 +30,7 @@ export function buildF10Url(fundCode: string): string {
 export const defaultEquityHttpGet: HttpGet = createHttpGet({
   label: '基金公开数据接口',
   allowedHosts: ALLOWED_HOSTS,
-  maxResponseLength: 2_000_000
+  maxResponseBytes: 2_000_000
 })
 
 function errorMessage(e: unknown): string {
@@ -109,7 +109,6 @@ export async function fetchEquityCandidate(
 }
 
 export interface EquityFetchBatchOptions {
-  timeoutMs?: number
   intervalMs?: number
   sleep?: (ms: number) => Promise<void> // 测试接缝：批量间隔不真实等待
   onStart?: (fundCode: string) => void // 逐行「抓取中」进展
@@ -134,7 +133,7 @@ export async function fetchEquityCandidateBatch(
     options.onStart?.(fundCode)
     let result: EquityFetchResult
     try {
-      result = await fetchEquityCandidate(fundCode, httpGet, options.timeoutMs)
+      result = await fetchEquityCandidate(fundCode, httpGet)
     } catch (e) {
       // fetchEquityCandidate 设计上不抛错；此处兜底保证批次不会因单只异常而中断
       result = { ok: false, fundCode, error: errorMessage(e) }
