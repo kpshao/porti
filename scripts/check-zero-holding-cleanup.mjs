@@ -24,7 +24,7 @@ const ROOT = resolve(import.meta.dirname, '..')
 const PORT = process.argv.includes('--port') ? process.argv[process.argv.indexOf('--port') + 1] : '9333'
 const CDP = `http://127.0.0.1:${PORT}`
 
-/** 与 src/engine/compute.ts 的 CLOSED_CATEGORY 保持一致 */
+/** 与 src/engine/compute.ts 的 CLOSED_GROUP 保持一致 */
 const CLOSED_GROUP = '已清仓'
 /** 与 src/engine/validation.ts 的 CATEGORIES 保持一致 */
 const CATEGORIES = ['固守+', '纯债', '权益', '黄金', '流动性']
@@ -314,7 +314,7 @@ if (closedFunds.length === 0) {
   check(after.groups.length > 1 && after.toggleActive, '开关打开后处于激活态')
   check(
     closedGroup?.headMarketValue === '—',
-    '已清仓组头「大类汇总」显示「—」（无在持份额即无市值口径）',
+    '已清仓组头「形态汇总」显示「—」（无在持份额即无市值口径）',
     `实为「${closedGroup?.headMarketValue}」`
   )
 

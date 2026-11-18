@@ -16,7 +16,7 @@ import {
   costBasisStates,
   filterFundSeriesRange,
   groupClosedPositions,
-  groupPositionsByCategory,
+  groupPositionsByProductForm,
   latestNavDate
 } from '../engine'
 import type {
@@ -154,7 +154,7 @@ export function registerDataIpc(): void {
     const today = todayString()
     return {
       funds,
-      positionGroups: groupPositionsByCategory(positions, transactions, today),
+      positionGroups: groupPositionsByProductForm(positions, transactions, today),
       closedGroup: groupClosedPositions(positions),
       summary: computeSummaryData(positions, transactions, navPoints, today),
       comparison,

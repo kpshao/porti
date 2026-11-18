@@ -18,6 +18,7 @@ function mkPosition(
     fundCode,
     name: fundCode,
     category: '权益',
+    productForm: '权益',
     fundType: null,
     invested: netCost,
     redeemed: 0,
