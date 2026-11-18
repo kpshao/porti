@@ -1,5 +1,6 @@
 // 净值抓取编排：批量接口 URL 拼接 + 注入式 HTTP（mock 接缝）+ 默认实现
 
+import { createHttpGet } from './http'
 import { parseNavQuoteList } from './parse'
 import type { HttpGet, NavQuote } from './types'
 
@@ -38,22 +39,5 @@ export async function fetchNavQuotes(
   return parseNavQuoteList(body)
 }
 
-/** 默认 HTTP 实现（Node/Electron 全局 fetch + AbortController 超时） */
-export const defaultHttpGet: HttpGet = async (url, timeoutMs) => {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'Porti/0.1' }
-    })
-    if (!res.ok) throw new Error(`接口返回状态码 ${res.status}`)
-    return await res.text()
-  } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e)
-    if (detail.toLowerCase().includes('abort')) throw new Error('净值接口请求超时，请稍后重试')
-    throw new Error(`净值接口请求失败：${detail}`)
-  } finally {
-    clearTimeout(timer)
-  }
-}
+/** 净值抓取的默认 HTTP 实现 */
+export const defaultHttpGet = createHttpGet({ label: '净值接口' })

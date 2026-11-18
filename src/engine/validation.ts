@@ -77,6 +77,14 @@ function fail(...messages: string[]): never {
   throw new Error(messages.join('；'))
 }
 
+/** 权益系数值域 [0, 1]（配置更新与抓取确认共用） */
+export function isValidEquityRatio(value: number): boolean {
+  return Number.isFinite(value) && value >= 0 && value <= 1
+}
+
+/** 权益系数非法时的统一中文错误（服务与界面共用） */
+export const EQUITY_RATIO_ERROR_TEXT = '权益系数需为 0 到 100% 之间的数字'
+
 /** 校验并归一化流水录入。规则与 ticket 04 一致；卖出按库内约定取负。 */
 export function normalizeTransactionInput(input: TransactionInput): Transaction {
   const errors: string[] = []
@@ -167,8 +175,8 @@ export function normalizeFundUpdateInput(input: FundUpdateInput): NormalizedFund
   if (!productFormValid) errors.push(`产品形态需为：${PRODUCT_FORMS.join('/')}`)
   const ledgerCategoryValid = (LEDGER_CATEGORIES as readonly string[]).includes(input.ledgerCategory)
   if (!ledgerCategoryValid) errors.push(`账本大类需为：${LEDGER_CATEGORIES.join('/')}`)
-  if (!Number.isFinite(input.equityRatio) || input.equityRatio < 0 || input.equityRatio > 1) {
-    errors.push('权益系数需为 0 到 100% 之间的数字')
+  if (!isValidEquityRatio(input.equityRatio)) {
+    errors.push(EQUITY_RATIO_ERROR_TEXT)
   }
   if (productFormValid && ledgerCategoryValid) {
     const expected = LEDGER_CATEGORY_BY_PRODUCT_FORM[input.productForm]

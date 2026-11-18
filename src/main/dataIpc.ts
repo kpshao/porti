@@ -21,6 +21,7 @@ import {
 } from '../engine'
 import type {
   BucketTarget,
+  Fund,
   FundInput,
   FundPosition,
   FundSeriesRange,
@@ -44,7 +45,13 @@ import { SCHEMA_VERSION } from './schema'
 import { loadSettings, saveDbPath, saveMigrationPromptDismissed } from './settingsStore'
 import { createFund, createTransaction, deleteTransaction, updateTransaction } from './transactionService'
 import { listFundConfigs, updateFund } from './fundConfigService'
-import type { FundConfigData } from './fundConfigTypes'
+import type {
+  EquityFetchEvent,
+  EquityFetchResult,
+  EquityRatioConfirmInput,
+  FundConfigData
+} from './fundConfigTypes'
+import { createEquityFetchService } from './equityFetchService'
 import { getFetchStatus, runNavFetch, upsertManualNav } from './navService'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from './navTypes'
 import { loadBucketTargets, saveBucketTargets } from './targetService'
@@ -54,6 +61,9 @@ import type { FundDetailData } from './fundDetailTypes'
 import type { AnalysisData } from './analysisTypes'
 
 export function registerDataIpc(): void {
+  // 抓取服务持有本次会话的候选值（只在主进程内存中，确认后写入）
+  const equityFetchService = createEquityFetchService()
+
   // 选择 Excel 文件；取消返回 null
   ipcMain.handle('import:pick-file', async (): Promise<string | null> => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -120,6 +130,35 @@ export function registerDataIpc(): void {
   ipcMain.handle('fund-config:data', (): FundConfigData => ({ funds: listFundConfigs(getDb()) }))
 
   ipcMain.handle('fund-config:update', (_event, input: FundUpdateInput) => updateFund(getDb(), input))
+
+  // 抓取单只基金的股票占净比候选值：网络请求只在主进程发起；确认前不写库
+  ipcMain.handle(
+    'fund-config:fetch-equity',
+    (_event, fundCode: string): Promise<EquityFetchResult> =>
+      equityFetchService.fetchForFund(fundCode)
+  )
+
+  // 刷新全部：主进程顺序抓取并控制频率，逐行事件用于界面展示进行中与错误状态
+  ipcMain.handle('fund-config:fetch-equity-all', async (event): Promise<EquityFetchResult[]> => {
+    const send = (payload: EquityFetchEvent): void => {
+      if (!event.sender.isDestroyed()) event.sender.send('fund-config:equity-fetch-event', payload)
+    }
+    return equityFetchService.fetchAll(getDb(), {
+      onStart: (fundCode) => send({ type: 'started', fundCode }),
+      onResult: (result) => send({ type: 'result', result })
+    })
+  })
+
+  // 用户确认候选值后才写入（来源与数据日期规则见 ADR-0006）
+  ipcMain.handle(
+    'fund-config:confirm-equity',
+    (_event, input: EquityRatioConfirmInput): Fund => equityFetchService.confirm(getDb(), input)
+  )
+
+  // 忽略候选值：清除主进程内存中的候选值
+  ipcMain.handle('fund-config:discard-equity', (_event, fundCode: string): void => {
+    equityFetchService.discard(fundCode)
+  })
 
   // ---------- 净值管理页：历史数据 + 一键抓取 + 手动补录 + 启动抓取状态 ----------
 

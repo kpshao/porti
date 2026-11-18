@@ -44,6 +44,21 @@ export function updateFundRow(
   )
 }
 
+/** 抓取候选值确认写入：只更新权益系数、来源与数据日期（名称/分类/代码不动） */
+export function updateFundEquityRatio(
+  db: Database.Database,
+  update: Pick<Fund, 'code' | 'equityRatio' | 'equityRatioSource' | 'equityRatioAsOf'>
+): void {
+  const info = db
+    .prepare(
+      `UPDATE funds
+       SET equity_ratio = ?, equity_ratio_source = ?, equity_ratio_as_of = ?
+       WHERE code = ?`
+    )
+    .run(update.equityRatio, update.equityRatioSource, update.equityRatioAsOf, update.code)
+  if (info.changes === 0) throw new Error(`基金 ${update.code} 不存在`)
+}
+
 /** 基金读取（最终模型） */
 export function selectFunds(db: Database.Database): Fund[] {
   const rows = db

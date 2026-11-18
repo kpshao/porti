@@ -10,7 +10,12 @@ import type {
 import type { CommitPayload, ImportOutcome, ParseResult, TxData } from '../importer/types'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from '../main/navTypes'
 import type { MigrationMeta } from '../main/migrationService'
-import type { FundConfigData } from '../main/fundConfigTypes'
+import type {
+  EquityFetchEvent,
+  EquityFetchResult,
+  EquityRatioConfirmInput,
+  FundConfigData
+} from '../main/fundConfigTypes'
 import type { OverviewData } from '../main/overviewTypes'
 import type { StatsData } from '../main/statsTypes'
 import type { FundDetailData } from '../main/fundDetailTypes'
@@ -43,6 +48,20 @@ const api = {
   fundConfigData: (): Promise<FundConfigData> => ipcRenderer.invoke('fund-config:data'),
   fundConfigUpdate: (input: FundUpdateInput): Promise<Fund> =>
     ipcRenderer.invoke('fund-config:update', input),
+  fundConfigFetchEquity: (fundCode: string): Promise<EquityFetchResult> =>
+    ipcRenderer.invoke('fund-config:fetch-equity', fundCode),
+  fundConfigFetchEquityAll: (): Promise<EquityFetchResult[]> =>
+    ipcRenderer.invoke('fund-config:fetch-equity-all'),
+  fundConfigConfirmEquity: (input: EquityRatioConfirmInput): Promise<Fund> =>
+    ipcRenderer.invoke('fund-config:confirm-equity', input),
+  fundConfigDiscardEquity: (fundCode: string): Promise<void> =>
+    ipcRenderer.invoke('fund-config:discard-equity', fundCode),
+  fundConfigOnEquityFetchEvent: (callback: (event: EquityFetchEvent) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: EquityFetchEvent): void =>
+      callback(event)
+    ipcRenderer.on('fund-config:equity-fetch-event', listener)
+    return () => ipcRenderer.removeListener('fund-config:equity-fetch-event', listener)
+  },
   navData: (): Promise<NavData> => ipcRenderer.invoke('nav:data'),
   navFetch: (): Promise<NavFetchResult> => ipcRenderer.invoke('nav:fetch'),
   navPut: (input: NavInput): Promise<void> => ipcRenderer.invoke('nav:put', input),
