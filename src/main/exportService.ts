@@ -8,8 +8,16 @@ import { writeFileSync } from 'fs'
 import { join } from 'path'
 import type Database from 'better-sqlite3'
 import * as XLSX from 'xlsx'
-import { NAV_SOURCE_LABEL, computeCategoryComparison, computePositions, computeTotals } from '../engine'
-import { selectCategoryTargets, selectFunds, selectNavPoints, selectTransactions } from './repo'
+import {
+  EQUITY_RATIO_SOURCE_LABEL,
+  NAV_SOURCE_LABEL,
+  computeAllocationComparison,
+  computePositions,
+  computeTotals
+} from '../engine'
+import type { AllocationComparison, AllocationComparisonRow } from '../engine'
+import { selectFunds, selectNavPoints, selectTransactions } from './repo'
+import { loadBucketTargets } from './targetService'
 
 export type ExportCell = string | null | { v: number; z: string }
 export interface ExportSheet {
@@ -45,6 +53,30 @@ function percent(v: number | null): ExportCell {
   return v === null ? '' : num(roundTo(v * 100, 2), Z_PERCENT)
 }
 
+/** 比例 → 说明文字里的百分比（与界面 formatPercent 同为 2 位显示精度） */
+function percentText(v: number): string {
+  return `${(v * 100).toFixed(2)}%`
+}
+
+/** 配置对比的归一化说明：归一化判定与概览页横幅同口径；未配置/无需归一化两种文案为导出补充 */
+function targetNote(comparison: AllocationComparison): string {
+  if (comparison.targetTotal <= 0) return '目标合计为 0，视为未配置；偏离为空。'
+  if (comparison.targetNormalized) {
+    return `目标合计 ${percentText(comparison.targetTotal)}，不等于 100%；偏离按归一化目标计算。`
+  }
+  return `目标合计 ${percentText(comparison.targetTotal)}，无需归一化；偏离按原始目标计算。`
+}
+
+function comparisonRow(r: AllocationComparisonRow): ExportCell[] {
+  return [
+    r.bucket,
+    percent(r.targetRatio),
+    percent(r.investedRatio),
+    percent(r.marketRatio),
+    percent(r.deviation)
+  ]
+}
+
 export function buildExportData(db: Database.Database): ExportSheet[] {
   const funds = selectFunds(db)
   const transactions = selectTransactions(db)
@@ -53,16 +85,22 @@ export function buildExportData(db: Database.Database): ExportSheet[] {
 
   const positions = computePositions(funds, transactions, navPoints)
   const totals = computeTotals(positions, transactions)
-  const comparison = computeCategoryComparison(positions, selectCategoryTargets(db))
+  const comparison = computeAllocationComparison(positions, funds, loadBucketTargets(db).targets)
 
-  return [overviewSheet(positions, totals, comparison), transactionsSheet(transactions, nameByCode), navSheet(navPoints, nameByCode)]
+  return [
+    overviewSheet(positions, funds, totals, comparison),
+    transactionsSheet(transactions, nameByCode),
+    navSheet(navPoints, nameByCode)
+  ]
 }
 
 function overviewSheet(
   positions: ReturnType<typeof computePositions>,
+  funds: ReturnType<typeof selectFunds>,
   totals: ReturnType<typeof computeTotals>,
-  comparison: ReturnType<typeof computeCategoryComparison>
+  comparison: AllocationComparison
 ): ExportSheet {
+  const fundByCode = new Map(funds.map((f) => [f.code, f]))
   return {
     name: '概览',
     rows: [
@@ -75,31 +113,36 @@ function overviewSheet(
       ['净投入成本', money(totals.totalNetCost)],
       [],
       ['持仓明细'],
-      ['基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)'],
+      [
+        '基金代码', '基金名称', '产品形态', '账本大类', '权益系数(%)', '系数来源', '系数数据日期',
+        '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)'
+      ],
       // 与概览页持仓明细同一口径：只列在持持仓（份额 > 0）；已清仓与超卖负份额都不列（它们在概览页的「已清仓」组里）
       ...positions
         .filter((p) => p.shares > 0)
-        .map((p) => [
-          p.fundCode,
-          p.name,
-          p.category,
-          shares2(p.shares),
-          money(p.costBasis),
-          nav4(p.latestNav),
-          money(p.marketValue),
-          money(p.pnl),
-          percent(p.pnlRatio)
-        ]),
+        .map((p) => {
+          const fund = fundByCode.get(p.fundCode)! // 持仓由同一 funds 生成，必有对应基金
+          return [
+            p.fundCode,
+            p.name,
+            fund.productForm,
+            fund.ledgerCategory,
+            percent(fund.equityRatio),
+            EQUITY_RATIO_SOURCE_LABEL[fund.equityRatioSource],
+            fund.equityRatioAsOf ?? '',
+            shares2(p.shares),
+            money(p.costBasis),
+            nav4(p.latestNav),
+            money(p.marketValue),
+            money(p.pnl),
+            percent(p.pnlRatio)
+          ]
+        }),
       [],
-      ['大类配置对比'],
-      ['大类', '目标比例(%)', '实际投入比例(%)', '实际市值占比(%)', '偏离(%)'],
-      ...comparison.map((r) => [
-        r.category,
-        percent(r.targetRatio),
-        percent(r.investedRatio),
-        percent(r.marketRatio),
-        percent(r.deviation)
-      ])
+      ['配置对比'],
+      ['配置桶', '目标比例(%)', '实际投入比例(%)', '实际市值占比(%)', '偏离(%)'],
+      ...comparison.rows.map(comparisonRow),
+      ['说明', targetNote(comparison)]
     ]
   }
 }

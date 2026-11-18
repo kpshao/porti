@@ -208,7 +208,7 @@ export default function Settings(): React.JSX.Element {
         <h2>导出备份</h2>
         <p className="muted">
           一键导出与软件内完全一致的数据（金额 2 位、净值 4 位、份额 2 位、比例百分比 2 位），
-          中文表头，三张表分别为概览（汇总/持仓明细/大类配置对比）、流水、净值。
+          中文表头，三张表分别为概览（汇总/持仓明细/配置对比）、流水、净值。
         </p>
         <div className="settings-actions">
           <button className="btn btn-primary" onClick={doExportExcel} disabled={busy !== null}>
