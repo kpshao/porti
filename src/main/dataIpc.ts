@@ -24,6 +24,7 @@ import type {
   FundInput,
   FundPosition,
   FundSeriesRange,
+  FundUpdateInput,
   NavPoint,
   SummaryData,
   Transaction,
@@ -42,6 +43,8 @@ import { hasAnyData, selectFunds, selectNavPoints, selectTransactions } from './
 import { SCHEMA_VERSION } from './schema'
 import { loadSettings, saveDbPath, saveMigrationPromptDismissed } from './settingsStore'
 import { createFund, createTransaction, deleteTransaction, updateTransaction } from './transactionService'
+import { listFundConfigs, updateFund } from './fundConfigService'
+import type { FundConfigData } from './fundConfigTypes'
 import { getFetchStatus, runNavFetch, upsertManualNav } from './navService'
 import type { FetchStatus, NavData, NavFetchResult, NavInput } from './navTypes'
 import { loadBucketTargets, saveBucketTargets } from './targetService'
@@ -111,6 +114,12 @@ export function registerDataIpc(): void {
   })
 
   ipcMain.handle('fund:create', (_event, input: FundInput) => createFund(getDb(), input))
+
+  // ---------- 基金配置页：全部基金元数据 + 行内更新（代码只读、不提供新建/删除） ----------
+
+  ipcMain.handle('fund-config:data', (): FundConfigData => ({ funds: listFundConfigs(getDb()) }))
+
+  ipcMain.handle('fund-config:update', (_event, input: FundUpdateInput) => updateFund(getDb(), input))
 
   // ---------- 净值管理页：历史数据 + 一键抓取 + 手动补录 + 启动抓取状态 ----------
 

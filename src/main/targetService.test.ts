@@ -26,7 +26,7 @@ function freshDb(): Database.Database {
 
 /** 写入一笔在持权益基金：净投入与市值都是 1000 */
 function seedHeldEquityFund(db: Database.Database): void {
-  createFund(db, { code: '000001', name: '基金甲', category: '权益', fundType: null })
+  createFund(db, { code: '000001', name: '基金甲', productForm: '权益', fundType: null })
   db.prepare(
     'INSERT INTO transactions (date, type, fund_code, amount, shares, nav, fee, note, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
   ).run('2026-01-15', '买入', '000001', 1000, 100, 10, 0, null, 'x', 'x')

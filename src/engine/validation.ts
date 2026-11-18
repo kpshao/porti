@@ -1,12 +1,19 @@
-// 领域校验与归一化规则：流水录入、新建基金（主进程服务与界面共用同一份规则）
+// 领域校验与归一化规则：流水录入、新建基金、基金配置更新（主进程服务与界面共用同一份规则）
 
-import { resolveLegacyCategory } from './classification'
+import {
+  COMPAT_CATEGORY_BY_PRODUCT_FORM,
+  DEFAULT_EQUITY_RATIO,
+  LEDGER_CATEGORIES,
+  LEDGER_CATEGORY_BY_PRODUCT_FORM,
+  PRODUCT_FORMS
+} from './classification'
+import type { LedgerCategory, ProductForm } from './classification'
 import type { ClassifiedFund, OperationType, Transaction } from './types'
 
 /** 四种操作类型（spec 领域词汇的封闭集合） */
 export const OPERATION_TYPES: OperationType[] = ['买入', '卖出', '分红现金', '分红再投入']
 
-/** 现有表单接受的旧五类（兼容映射见 classification.ts） */
+/** 旧五类兼容值（过渡字段，见 classification.ts）；收缩票删除 */
 export const CATEGORIES = ['固守+', '纯债', '权益', '黄金', '流动性'] as const
 
 /** 流水录入输入（界面/服务入参；金额、份额、手续费可为空） */
@@ -21,12 +28,31 @@ export interface TransactionInput {
   note: string | null
 }
 
-/** 新建基金输入 */
+/** 新建基金输入（分类字段派生规则见 classification.ts） */
 export interface FundInput {
   code: string
   name: string
-  category: string
+  productForm: ProductForm
   fundType: string | null
+}
+
+/** 基金配置页更新输入：代码只作定位、不可修改（一致性规则见 classification.ts） */
+export interface FundUpdateInput {
+  code: string
+  name: string
+  productForm: ProductForm
+  ledgerCategory: LedgerCategory
+  equityRatio: number // 0–1（界面按百分比录入）
+}
+
+/** 归一化后的基金配置更新（category 为旧五类兼容列写法，见 classification.ts） */
+export interface NormalizedFundUpdate {
+  code: string
+  name: string
+  category: string
+  productForm: ProductForm
+  ledgerCategory: LedgerCategory
+  equityRatio: number
 }
 
 /** 基金代码归一化：6 位补零字符串；无法识别返回 null（importer 共用） */
@@ -102,27 +128,70 @@ export function normalizeTransactionInput(input: TransactionInput): Transaction 
   }
 }
 
-/** 校验并归一化新建基金输入（代码补零）。现有表单仍传旧五类，新模型字段由旧大类派生。 */
-export function normalizeFundInput(input: FundInput): ClassifiedFund {
-  const errors: string[] = []
+/** 新建与更新共用的代码/名称校验：错误追加到 errors，返回归一化值供无错误时使用 */
+function normalizeFundIdentity(
+  input: { code: string; name: string },
+  errors: string[]
+): { code: string; name: string } {
   const code = normalizeFundCode(input.code)
   if (code === null) errors.push('基金代码需为 6 位数字')
   if (input.name.trim() === '') errors.push('基金名称不能为空')
-  const category = input.category.trim()
-  if (!(CATEGORIES as readonly string[]).includes(category)) {
-    errors.push(`资产大类需为：${CATEGORIES.join('/')}`)
+  return { code: code!, name: input.name.trim() }
+}
+
+/** 校验并归一化新建基金输入（代码补零）。账本大类与默认权益系数由产品形态派生。 */
+export function normalizeFundInput(input: FundInput): ClassifiedFund {
+  const errors: string[] = []
+  const { code, name } = normalizeFundIdentity(input, errors)
+  if (!(PRODUCT_FORMS as readonly string[]).includes(input.productForm)) {
+    errors.push(`产品形态需为：${PRODUCT_FORMS.join('/')}`)
   }
   if (errors.length > 0) fail(...errors)
 
-  // 旧五类校验已通过，映射必然存在；保留防御分支避免未来扩展时静默写入空模型
-  const legacy = resolveLegacyCategory(category)
-  if (legacy === null) fail(`无法识别的大类「${category}」`)
+  const productForm = input.productForm
+  return {
+    code,
+    name,
+    category: COMPAT_CATEGORY_BY_PRODUCT_FORM[productForm],
+    fundType: input.fundType === null || input.fundType.trim() === '' ? null : input.fundType.trim(),
+    ledgerCategory: LEDGER_CATEGORY_BY_PRODUCT_FORM[productForm],
+    productForm,
+    equityRatio: DEFAULT_EQUITY_RATIO[productForm],
+    equityRatioSource: 'manual',
+    equityRatioAsOf: null
+  }
+}
+
+/**
+ * 校验并归一化基金配置更新：代码只作定位（不参与写入），产品形态与账本大类必须符合固定映射，
+ * 权益系数按 [0, 1] 校验（界面负责百分比换算）。
+ */
+export function normalizeFundUpdateInput(input: FundUpdateInput): NormalizedFundUpdate {
+  const errors: string[] = []
+  const { code, name } = normalizeFundIdentity(input, errors)
+  const productFormValid = (PRODUCT_FORMS as readonly string[]).includes(input.productForm)
+  if (!productFormValid) errors.push(`产品形态需为：${PRODUCT_FORMS.join('/')}`)
+  const ledgerCategoryValid = (LEDGER_CATEGORIES as readonly string[]).includes(input.ledgerCategory)
+  if (!ledgerCategoryValid) errors.push(`账本大类需为：${LEDGER_CATEGORIES.join('/')}`)
+  if (!Number.isFinite(input.equityRatio) || input.equityRatio < 0 || input.equityRatio > 1) {
+    errors.push('权益系数需为 0 到 100% 之间的数字')
+  }
+  if (productFormValid && ledgerCategoryValid) {
+    const expected = LEDGER_CATEGORY_BY_PRODUCT_FORM[input.productForm]
+    if (expected !== input.ledgerCategory) {
+      errors.push(
+        `产品形态「${input.productForm}」与账本大类「${input.ledgerCategory}」不一致，应为「${expected}」`
+      )
+    }
+  }
+  if (errors.length > 0) fail(...errors)
 
   return {
-    code: code!,
-    name: input.name.trim(),
-    category,
-    fundType: input.fundType === null || input.fundType.trim() === '' ? null : input.fundType.trim(),
-    ...legacy.classification
+    code,
+    name,
+    category: COMPAT_CATEGORY_BY_PRODUCT_FORM[input.productForm],
+    productForm: input.productForm,
+    ledgerCategory: input.ledgerCategory,
+    equityRatio: input.equityRatio
   }
 }

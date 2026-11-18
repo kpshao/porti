@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
 import type { Fund, OperationType, Transaction, TransactionRow } from '../../../engine'
 import {
-  CATEGORIES,
+  LEDGER_CATEGORY_BY_PRODUCT_FORM,
   normalizeFundCode,
   normalizeTransactionInput,
   OPERATION_TYPES,
+  PRODUCT_FORMS,
   realizedForSale
 } from '../../../engine'
-import type { FundInput, TransactionInput } from '../../../engine'
+import type { FundInput, ProductForm, TransactionInput } from '../../../engine'
 import { formatMoney } from '../utils/format'
 import { pnlClass } from '../utils/pnl'
 
@@ -59,7 +60,7 @@ export default function TransactionForm({
   const [fundFormOpen, setFundFormOpen] = useState(false)
   const [fundCodeInput, setFundCodeInput] = useState('')
   const [fundNameInput, setFundNameInput] = useState('')
-  const [fundCategory, setFundCategory] = useState('固守+')
+  const [fundProductForm, setFundProductForm] = useState<ProductForm>('固收+')
   const [fundTypeInput, setFundTypeInput] = useState('')
   const [fundError, setFundError] = useState<string | null>(null)
   const [fundBusy, setFundBusy] = useState(false)
@@ -127,7 +128,7 @@ export default function TransactionForm({
     const input: FundInput = {
       code,
       name: fundNameInput.trim(),
-      category: fundCategory,
+      productForm: fundProductForm,
       fundType: fundTypeInput.trim() === '' ? null : fundTypeInput.trim()
     }
     setFundBusy(true)
@@ -243,11 +244,14 @@ export default function TransactionForm({
               <input type="text" value={fundNameInput} onChange={(e) => setFundNameInput(e.target.value)} />
             </label>
             <label className="form-field">
-              <span>资产大类</span>
-              <select value={fundCategory} onChange={(e) => setFundCategory(e.target.value)}>
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+              <span>产品形态</span>
+              <select
+                value={fundProductForm}
+                onChange={(e) => setFundProductForm(e.target.value as ProductForm)}
+              >
+                {PRODUCT_FORMS.map((form) => (
+                  <option key={form} value={form}>
+                    {form}
                   </option>
                 ))}
               </select>
@@ -257,6 +261,10 @@ export default function TransactionForm({
               <input type="text" value={fundTypeInput} onChange={(e) => setFundTypeInput(e.target.value)} />
             </label>
           </div>
+          <p className="muted">
+            账本大类按产品形态自动设为「{LEDGER_CATEGORY_BY_PRODUCT_FORM[fundProductForm]}」，
+            默认权益系数由产品形态决定，可稍后在「基金配置」页调整。
+          </p>
           {fundError !== null && <div className="form-error">{fundError}</div>}
           <div className="preview-actions">
             <button className="btn btn-primary" onClick={createFund} disabled={fundBusy}>

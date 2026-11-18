@@ -30,6 +30,14 @@ export const DEFAULT_EQUITY_RATIO: Record<ProductForm, number> = {
   黄金: 0
 }
 
+/** 产品形态 → 旧五类兼容列写法（过渡层；兼容列只存旧值，「固收+」写回为「固守+」） */
+export const COMPAT_CATEGORY_BY_PRODUCT_FORM: Record<ProductForm, string> = {
+  '固收+': '固守+',
+  纯债: '纯债',
+  权益: '权益',
+  黄金: '黄金'
+}
+
 /** 每只基金的分类与权益穿透字段（schema v4 起必有） */
 export interface FundClassification {
   ledgerCategory: LedgerCategory
@@ -40,20 +48,20 @@ export interface FundClassification {
 }
 
 /**
- * 旧大类 → 产品形态与兼容列写法。兼容列只存旧五类标准值，因此新拼写「固收+」
- * 回写为「固守+」，老页面按旧五类识别时不会把它归入「其他」。
+ * 旧大类写法 → 产品形态。兼容列写法统一来自 COMPAT_CATEGORY_BY_PRODUCT_FORM，
+ * 只有旧「流动性」保留原写法（它不属于任何产品形态）。
  */
-const LEGACY_CATEGORY_MAP: Record<string, { productForm: ProductForm; compatCategory: string }> = {
-  '固守+': { productForm: '固收+', compatCategory: '固守+' },
-  '固收+': { productForm: '固收+', compatCategory: '固守+' },
-  纯债: { productForm: '纯债', compatCategory: '纯债' },
-  权益: { productForm: '权益', compatCategory: '权益' },
-  黄金: { productForm: '黄金', compatCategory: '黄金' },
-  流动性: { productForm: '纯债', compatCategory: '流动性' }
+const LEGACY_PRODUCT_FORM: Record<string, ProductForm> = {
+  '固守+': '固收+',
+  '固收+': '固收+',
+  纯债: '纯债',
+  权益: '权益',
+  黄金: '黄金',
+  流动性: '纯债'
 }
 
 /** 兼容映射的全部旧大类写法（迁移预检与回填共用） */
-export const LEGACY_FUND_CATEGORIES = Object.keys(LEGACY_CATEGORY_MAP)
+export const LEGACY_FUND_CATEGORIES = Object.keys(LEGACY_PRODUCT_FORM)
 
 /** 基金的产品形态：新模型字段优先，缺失时由旧大类兼容映射派生；无法识别返回 null（不猜测）。 */
 export function deriveProductForm(
@@ -74,14 +82,15 @@ export interface LegacyCategoryResolution {
  * 由调用方决定报错方式（迁移中止 / 导入报错）。
  */
 export function resolveLegacyCategory(category: string): LegacyCategoryResolution | null {
-  const entry = LEGACY_CATEGORY_MAP[category]
-  if (entry === undefined) return null
+  const productForm = LEGACY_PRODUCT_FORM[category]
+  if (productForm === undefined) return null
   return {
-    compatCategory: entry.compatCategory,
+    compatCategory:
+      category === '流动性' ? '流动性' : COMPAT_CATEGORY_BY_PRODUCT_FORM[productForm],
     classification: {
-      ledgerCategory: LEDGER_CATEGORY_BY_PRODUCT_FORM[entry.productForm],
-      productForm: entry.productForm,
-      equityRatio: DEFAULT_EQUITY_RATIO[entry.productForm],
+      ledgerCategory: LEDGER_CATEGORY_BY_PRODUCT_FORM[productForm],
+      productForm,
+      equityRatio: DEFAULT_EQUITY_RATIO[productForm],
       equityRatioSource: 'manual',
       equityRatioAsOf: null
     }

@@ -3,6 +3,7 @@ import FirstRunDialog from './components/FirstRunDialog'
 import Overview from './pages/Overview'
 import Transactions from './pages/Transactions'
 import NavHistory from './pages/NavHistory'
+import FundConfig from './pages/FundConfig'
 import Stats from './pages/Stats'
 import Analysis from './pages/Analysis'
 import Settings from './pages/Settings'
@@ -20,6 +21,7 @@ const PAGES: ReadonlyArray<{
   { key: 'overview', label: '概览', component: Overview },
   { key: 'transactions', label: '交易流水', component: Transactions },
   { key: 'nav', label: '净值管理', component: NavHistory },
+  { key: 'fund-config', label: '基金配置', component: FundConfig },
   { key: 'stats', label: '收益统计', component: Stats },
   { key: 'analysis', label: '分析', component: Analysis },
   { key: 'settings', label: '设置', component: Settings }

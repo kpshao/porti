@@ -13,17 +13,17 @@ function freshDb(): Database.Database {
 }
 
 function seedFund(db: Database.Database): void {
-  createFund(db, { code: '000001', name: '测试基金', category: '权益', fundType: null })
+  createFund(db, { code: '000001', name: '测试基金', productForm: '权益', fundType: null })
 }
 
 const buy: TransactionInput = {
   date: '2026-01-15', type: '买入', fundCode: '000001', amount: 1000, shares: 100, nav: 10, fee: null, note: null
 }
 
-describe('createFund — 新建基金', () => {
+describe('createFund — 新建基金（按产品形态）', () => {
   it('代码补前导零后入库', () => {
     const db = freshDb()
-    createFund(db, { code: '2065', name: '补零基金', category: '固守+', fundType: '二级债基' })
+    createFund(db, { code: '2065', name: '补零基金', productForm: '固收+', fundType: '二级债基' })
     const funds = selectFunds(db)
     expect(funds).toHaveLength(1)
     expect(funds[0]).toMatchObject({
@@ -35,21 +35,20 @@ describe('createFund — 新建基金', () => {
     const db = freshDb()
     seedFund(db)
     expect(() =>
-      createFund(db, { code: '000001', name: '重复', category: '权益', fundType: null })
+      createFund(db, { code: '000001', name: '重复', productForm: '权益', fundType: null })
     ).toThrow(/已存在/)
   })
 
-  it('按现有表单的旧大类补齐账本大类、产品形态与默认权益系数', () => {
+  it('产品形态派生账本大类、旧五类兼容值与默认权益系数', () => {
     const db = freshDb()
     const inputs = [
       ['000001', '纯债基金', '纯债'],
-      ['000002', '固收加基金', '固守+'],
+      ['000002', '固收加基金', '固收+'],
       ['000003', '权益基金', '权益'],
-      ['000004', '黄金基金', '黄金'],
-      ['000005', '流动性基金', '流动性']
+      ['000004', '黄金基金', '黄金']
     ] as const
-    for (const [code, name, category] of inputs) {
-      createFund(db, { code, name, category, fundType: null })
+    for (const [code, name, productForm] of inputs) {
+      createFund(db, { code, name, productForm, fundType: null })
     }
 
     expect(
@@ -66,8 +65,7 @@ describe('createFund — 新建基金', () => {
       { code: '000001', category: '纯债', ledgerCategory: '债', productForm: '纯债', equityRatio: 0, equityRatioSource: 'manual', equityRatioAsOf: null },
       { code: '000002', category: '固守+', ledgerCategory: '债', productForm: '固收+', equityRatio: 0.2, equityRatioSource: 'manual', equityRatioAsOf: null },
       { code: '000003', category: '权益', ledgerCategory: '权益', productForm: '权益', equityRatio: 1, equityRatioSource: 'manual', equityRatioAsOf: null },
-      { code: '000004', category: '黄金', ledgerCategory: '黄金', productForm: '黄金', equityRatio: 0, equityRatioSource: 'manual', equityRatioAsOf: null },
-      { code: '000005', category: '流动性', ledgerCategory: '债', productForm: '纯债', equityRatio: 0, equityRatioSource: 'manual', equityRatioAsOf: null }
+      { code: '000004', category: '黄金', ledgerCategory: '黄金', productForm: '黄金', equityRatio: 0, equityRatioSource: 'manual', equityRatioAsOf: null }
     ])
   })
 })

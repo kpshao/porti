@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { isValidDateString, normalizeFundCode, normalizeFundInput, normalizeTransactionInput } from './validation'
-import type { FundInput, TransactionInput } from './validation'
+import {
+  isValidDateString,
+  normalizeFundCode,
+  normalizeFundInput,
+  normalizeFundUpdateInput,
+  normalizeTransactionInput
+} from './validation'
+import type { FundInput, FundUpdateInput, TransactionInput } from './validation'
+import type { LedgerCategory, ProductForm } from './classification'
 
 const base: TransactionInput = {
   date: '2026-01-15',
@@ -101,22 +108,86 @@ describe('isValidDateString', () => {
   })
 })
 
-describe('normalizeFundInput — 新建基金', () => {
-  it('代码补前导零至 6 位', () => {
-    const f = normalizeFundInput({ code: '2065', name: '测试基金', category: '固守+', fundType: null })
-    expect(f.code).toBe('002065')
+describe('normalizeFundInput — 新建基金（按产品形态）', () => {
+  it('代码补前导零；账本大类、兼容列与默认系数由产品形态派生', () => {
+    const f = normalizeFundInput({ code: '2065', name: '测试基金', productForm: '固收+', fundType: '二级债基' })
+    expect(f).toEqual({
+      code: '002065',
+      name: '测试基金',
+      category: '固守+', // 兼容列写回旧拼写
+      fundType: '二级债基',
+      ledgerCategory: '债',
+      productForm: '固收+',
+      equityRatio: 0.2,
+      equityRatioSource: 'manual',
+      equityRatioAsOf: null
+    })
   })
 
-  it('名称必填、大类须为封闭集合', () => {
-    const baseFund: FundInput = { code: '000001', name: '测试基金', category: '固守+', fundType: null }
+  it('名称必填、产品形态须为封闭集合', () => {
+    const baseFund: FundInput = { code: '000001', name: '测试基金', productForm: '纯债', fundType: null }
     expect(() => normalizeFundInput({ ...baseFund, code: 'abc' })).toThrow(/基金代码/)
-    expect(() => normalizeFundInput({ ...baseFund, name: '' })).toThrow(/名称/)
-    expect(() => normalizeFundInput({ ...baseFund, category: '' })).toThrow(/资产大类/)
-    expect(() => normalizeFundInput({ ...baseFund, category: '股票' })).toThrow(/资产大类/)
-    // 五个标准大类均通过
-    for (const c of ['固守+', '纯债', '权益', '黄金', '流动性']) {
-      expect(normalizeFundInput({ ...baseFund, category: c }).category).toBe(c)
+    expect(() => normalizeFundInput({ ...baseFund, name: '  ' })).toThrow(/名称/)
+    expect(() =>
+      normalizeFundInput({ ...baseFund, productForm: '股票' as ProductForm })
+    ).toThrow(/产品形态/)
+  })
+
+  it('四种产品形态的标准派生值', () => {
+    const expected: [ProductForm, string, LedgerCategory, number][] = [
+      ['固收+', '固守+', '债', 0.2],
+      ['纯债', '纯债', '债', 0],
+      ['权益', '权益', '权益', 1],
+      ['黄金', '黄金', '黄金', 0]
+    ]
+    for (const [productForm, category, ledgerCategory, equityRatio] of expected) {
+      const f = normalizeFundInput({ code: '000001', name: '测试基金', productForm, fundType: null })
+      expect(f).toMatchObject({ category, productForm, ledgerCategory, equityRatio })
     }
+  })
+})
+
+describe('normalizeFundUpdateInput — 基金配置更新', () => {
+  const base: FundUpdateInput = {
+    code: '000001',
+    name: '测试基金',
+    productForm: '固收+',
+    ledgerCategory: '债',
+    equityRatio: 0.2
+  }
+
+  it('归一化名称并带回兼容列写法', () => {
+    expect(normalizeFundUpdateInput({ ...base, name: '  改名后  ' })).toEqual({
+      ...base,
+      name: '改名后',
+      category: '固守+'
+    })
+  })
+
+  it('产品形态与账本大类不一致时拒绝', () => {
+    expect(() => normalizeFundUpdateInput({ ...base, ledgerCategory: '权益' })).toThrow(/不一致/)
+    expect(() =>
+      normalizeFundUpdateInput({ ...base, productForm: '黄金', ledgerCategory: '债' })
+    ).toThrow(/不一致/)
+  })
+
+  it('权益系数限制在 0–1', () => {
+    expect(() => normalizeFundUpdateInput({ ...base, equityRatio: -0.01 })).toThrow(/权益系数/)
+    expect(() => normalizeFundUpdateInput({ ...base, equityRatio: 1.01 })).toThrow(/权益系数/)
+    expect(() => normalizeFundUpdateInput({ ...base, equityRatio: Number.NaN })).toThrow(/权益系数/)
+    expect(normalizeFundUpdateInput({ ...base, equityRatio: 0 }).equityRatio).toBe(0)
+    expect(normalizeFundUpdateInput({ ...base, equityRatio: 1 }).equityRatio).toBe(1)
+  })
+
+  it('代码、名称与枚举值都校验', () => {
+    expect(() => normalizeFundUpdateInput({ ...base, code: 'abc' })).toThrow(/基金代码/)
+    expect(() => normalizeFundUpdateInput({ ...base, name: '' })).toThrow(/名称/)
+    expect(() =>
+      normalizeFundUpdateInput({ ...base, productForm: '股票' as ProductForm })
+    ).toThrow(/产品形态/)
+    expect(() =>
+      normalizeFundUpdateInput({ ...base, ledgerCategory: '现金' as LedgerCategory })
+    ).toThrow(/账本大类/)
   })
 })
 

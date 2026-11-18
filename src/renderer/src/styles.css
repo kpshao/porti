@@ -631,6 +631,23 @@ body {
   outline: none;
 }
 
+/* 基金配置页行内编辑：名称列放宽，百分比列收窄，操作列按钮不折行 */
+.inline-edit.fund-config-name {
+  width: 180px;
+}
+
+.inline-edit.fund-config-ratio {
+  width: 90px;
+}
+
+.fund-config-actions {
+  white-space: nowrap;
+}
+
+.fund-config-actions .btn + .btn {
+  margin-left: 8px;
+}
+
 /* 收益统计页图表 */
 .chart {
   width: 100%;

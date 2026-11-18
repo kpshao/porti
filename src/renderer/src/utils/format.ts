@@ -37,3 +37,8 @@ export function formatEffectiveHoldings(n: number | null | undefined): string {
   if (!isFormattable(n)) return '—'
   return n.toFixed(1)
 }
+
+/** 比例 → 百分比编辑框文本（与 formatPercent 同为 2 位显示精度） */
+export function ratioToPercentText(ratio: number): string {
+  return (ratio * 100).toFixed(2)
+}
