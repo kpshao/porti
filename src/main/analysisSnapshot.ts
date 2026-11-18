@@ -1,31 +1,35 @@
 // 分析快照构建器（纯函数）：把当前组合数据整理成固定字段、固定排序的 JSON，供 AI 一次性阅读。
-// 口径全部复用 engine：汇总（全部/在持）、大类偏离、集中度、区间收益与年化。
-// 安全/隐私边界：只输出白名单字段；不含密钥、数据文件路径与原始逐日净值序列；
+// 口径全部复用 engine：汇总（全部/在持）、配置桶对比、集中度、区间收益与年化。
+// 安全/隐私边界：只输出白名单字段；不含密钥、数据文件路径、原始逐日净值序列与旧五类标签；
 // 每次发送时重新构建，不落库。
 
 import {
   byDateThenId,
   byFundCode,
+  computeAllocationComparison,
   computeAnnualizedReturns,
-  computeCategoryComparison,
   computeConcentrationMetrics,
   computeFundSeries,
   computePositions,
   computeScopedSummary,
   costBasisStates,
+  EQUITY_RATIO_SOURCE_LABEL,
   isClosed,
   isHeld,
   latestNavDate,
   realizedPerSale
 } from '../engine'
 import type {
-  CategoryComparisonRow,
-  CategoryTarget,
+  AllocationBucket,
+  BucketTarget,
+  ClassifiedFund,
   ConcentrationMetrics,
-  Fund,
+  EquityRatioSourceLabel,
   FundPosition,
+  LedgerCategory,
   NavPoint,
   OperationType,
+  ProductForm,
   ScopedSummary,
   TransactionRow
 } from '../engine'
@@ -34,7 +38,13 @@ import type { SnapshotPreview } from './aiTypes'
 export interface SnapshotHolding {
   fundCode: string
   name: string
-  category: string
+  productForm: ProductForm
+  ledgerCategory: LedgerCategory
+  equityRatio: number
+  /** 系数来源的中文标签值（与领域词汇一致） */
+  equityRatioSource: EquityRatioSourceLabel
+  /** 系数数据日期（报告期或空） */
+  equityRatioAsOf: string | null
   shares: number
   costBasis: number
   latestNav: number | null
@@ -48,11 +58,19 @@ export interface SnapshotHolding {
   realizedIncome: number
 }
 
-export interface SnapshotCategoryRow {
-  category: string
+export interface SnapshotBucketRow {
+  bucket: AllocationBucket
   targetRatio: number
   marketRatio: number | null
   deviation: number | null
+}
+
+export interface SnapshotAllocationComparison {
+  /** 固定三行；顺序与口径见 engine 的 ALLOCATION_BUCKETS 与 computeAllocationComparison */
+  rows: SnapshotBucketRow[]
+  targetTotal: number
+  /** 偏离是否按归一化目标计算（口径见 CONTEXT.md「配置桶目标比例」） */
+  targetNormalized: boolean
 }
 
 /** 单基金区间收益摘要。区间 = 该基金全部净值记录的首末日期；
@@ -96,7 +114,7 @@ export interface AnalysisSnapshot {
     all: ScopedSummary
     held: ScopedSummary
   }
-  categoryComparison: SnapshotCategoryRow[]
+  allocationComparison: SnapshotAllocationComparison
   concentration: ConcentrationMetrics
   holdings: SnapshotHolding[]
   closedHoldings: SnapshotHolding[]
@@ -105,10 +123,10 @@ export interface AnalysisSnapshot {
 }
 
 export interface AnalysisSnapshotInput {
-  funds: Fund[]
+  funds: ClassifiedFund[]
   transactions: TransactionRow[]
   navPoints: NavPoint[]
-  categoryTargets: CategoryTarget[]
+  bucketTargets: BucketTarget[]
   /** 期末估值日（YYYY-MM-DD），显式入参以保证年化口径可测 */
   today: string
 }
@@ -123,7 +141,7 @@ function byMarketValueDesc(a: FundPosition, b: FundPosition): number {
 }
 
 export function buildAnalysisSnapshot(input: AnalysisSnapshotInput): AnalysisSnapshot {
-  const { funds, transactions, navPoints, categoryTargets, today } = input
+  const { funds, transactions, navPoints, bucketTargets, today } = input
   const positions = computePositions(funds, transactions, navPoints)
   const metrics = computeConcentrationMetrics(positions)
   const weightByCode = new Map(metrics.weights.map((w) => [w.fundCode, w.weight]))
@@ -134,26 +152,34 @@ export function buildAnalysisSnapshot(input: AnalysisSnapshotInput): AnalysisSna
     ])
   )
   const annualizedByCode = computeAnnualizedReturns(transactions, navPoints, today)
+  // 持仓由同一 funds 生成，必有对应基金
+  const fundByCode = new Map(funds.map((f) => [f.code, f]))
 
-  const toHolding = (p: FundPosition): SnapshotHolding => ({
-    fundCode: p.fundCode,
-    name: p.name,
-    category: p.category,
-    shares: p.shares,
-    costBasis: p.costBasis,
-    latestNav: p.latestNav,
-    latestNavDate: p.latestNavDate,
-    marketValue: p.marketValue,
-    pnl: p.pnl,
-    pnlRatio: p.pnlRatio,
-    weight: weightByCode.get(p.fundCode) ?? null,
-    realizedIncome: realizedByCode.get(p.fundCode) ?? 0
-  })
+  const toHolding = (p: FundPosition): SnapshotHolding => {
+    const fund = fundByCode.get(p.fundCode)!
+    return {
+      fundCode: p.fundCode,
+      name: p.name,
+      productForm: fund.productForm,
+      ledgerCategory: fund.ledgerCategory,
+      equityRatio: fund.equityRatio,
+      equityRatioSource: EQUITY_RATIO_SOURCE_LABEL[fund.equityRatioSource],
+      equityRatioAsOf: fund.equityRatioAsOf,
+      shares: p.shares,
+      costBasis: p.costBasis,
+      latestNav: p.latestNav,
+      latestNavDate: p.latestNavDate,
+      marketValue: p.marketValue,
+      pnl: p.pnl,
+      pnlRatio: p.pnlRatio,
+      weight: weightByCode.get(p.fundCode) ?? null,
+      realizedIncome: realizedByCode.get(p.fundCode) ?? 0
+    }
+  }
 
   const held = positions.filter(isHeld).sort(byMarketValueDesc)
   const closed = positions.filter(isClosed).sort(byMarketValueDesc)
 
-  const fundByName = new Map(funds.map((f) => [f.code, f]))
   const realizedPerTransaction = realizedPerSale(transactions)
 
   const fundReturns: FundReturnSummary[] = funds
@@ -187,7 +213,7 @@ export function buildAnalysisSnapshot(input: AnalysisSnapshotInput): AnalysisSna
       date: t.date,
       type: t.type,
       fundCode: t.fundCode,
-      fundName: fundByName.get(t.fundCode)?.name ?? null,
+      fundName: fundByCode.get(t.fundCode)?.name ?? null,
       amount: t.amount,
       shares: t.shares,
       nav: t.nav,
@@ -196,15 +222,17 @@ export function buildAnalysisSnapshot(input: AnalysisSnapshotInput): AnalysisSna
       realized: t.type === '卖出' ? (realizedPerTransaction.get(t.id) ?? null) : null
     }))
 
-  const categoryComparison: SnapshotCategoryRow[] = computeCategoryComparison(
-    positions,
-    categoryTargets
-  ).map((row: CategoryComparisonRow) => ({
-    category: row.category,
-    targetRatio: row.targetRatio,
-    marketRatio: row.marketRatio,
-    deviation: row.deviation
-  }))
+  const comparison = computeAllocationComparison(positions, funds, bucketTargets)
+  const allocationComparison: SnapshotAllocationComparison = {
+    rows: comparison.rows.map((row) => ({
+      bucket: row.bucket,
+      targetRatio: row.targetRatio,
+      marketRatio: row.marketRatio,
+      deviation: row.deviation
+    })),
+    targetTotal: comparison.targetTotal,
+    targetNormalized: comparison.targetNormalized
+  }
 
   return {
     dataFreshness: { today, latestNavDate: latestNavDate(navPoints) },
@@ -212,7 +240,7 @@ export function buildAnalysisSnapshot(input: AnalysisSnapshotInput): AnalysisSna
       all: computeScopedSummary('all', positions, transactions, navPoints, today),
       held: computeScopedSummary('held', positions, transactions, navPoints, today)
     },
-    categoryComparison,
+    allocationComparison,
     concentration: metrics,
     holdings: held.map(toHolding),
     closedHoldings: closed.map(toHolding),

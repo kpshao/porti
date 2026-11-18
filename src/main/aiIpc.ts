@@ -19,7 +19,8 @@ import { defaultAiHttpPost, streamChatCompletion, testAiConnection } from './aiP
 import { buildAnalysisSnapshot, serializeSnapshot } from './analysisSnapshot'
 import { todayString } from './date'
 import { getDb } from './db'
-import { hasAnyData, selectCategoryTargets, selectFunds, selectNavPoints, selectTransactions } from './repo'
+import { hasAnyData, selectFunds, selectNavPoints, selectTransactions } from './repo'
+import { loadBucketTargets } from './targetService'
 import type {
   AiChatEvent,
   AiChatMessage,
@@ -54,9 +55,10 @@ function currentSnapshotPreview(): SnapshotPreview {
         funds: selectFunds(db),
         transactions: selectTransactions(db),
         navPoints: selectNavPoints(db),
-        categoryTargets: selectCategoryTargets(db)
+        // 与概览 / 导出同源（折算规则见 targetService.loadBucketTargets）
+        bucketTargets: loadBucketTargets(db).targets
       }
-    : { funds: [], transactions: [], navPoints: [], categoryTargets: [] }
+    : { funds: [], transactions: [], navPoints: [], bucketTargets: [] }
   return serializeSnapshot(buildAnalysisSnapshot({ ...data, today: todayString() }))
 }
 

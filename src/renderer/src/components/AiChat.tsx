@@ -342,7 +342,7 @@ export default function AiChat({ onNavigateToSettings, hasHoldings }: AiChatProp
               <span className="mono">{config === null ? '' : config.baseUrl}</span>。
             </p>
             <p className="muted">
-              快照包含汇总、在持/已清仓基金明细、大类目标与偏离、集中度指标、全部流水、区间收益摘要与数据新鲜度；
+              快照包含汇总、在持/已清仓基金明细（含产品形态、账本大类、权益系数、系数来源与数据日期）、配置桶目标与偏离、集中度指标、全部流水、区间收益摘要与数据新鲜度；
               不包含 API key、数据文件路径与原始逐日净值序列。确认后不再弹出此说明。
             </p>
             <div className="settings-actions">
