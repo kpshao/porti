@@ -1,32 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import type { BucketTarget, ClassifiedFund, NavPoint, TransactionRow } from '../engine'
+import type { BucketTarget, Fund, NavPoint, TransactionRow } from '../engine'
 import { buildAnalysisSnapshot, serializeSnapshot } from './analysisSnapshot'
 
-const FUNDS: ClassifiedFund[] = [
+const FUNDS: Fund[] = [
   {
-    code: '000001', name: '阿尔法', category: '权益', fundType: '股票型',
+    code: '000001', name: '阿尔法', fundType: '股票型',
     ledgerCategory: '权益', productForm: '权益', equityRatio: 1, equityRatioSource: 'manual',
     equityRatioAsOf: null
   },
   {
     // 固收+ 的逐只覆盖：来源为抓取、带报告期，验证快照原样给出
-    code: '000002', name: '贝塔', category: '固守+', fundType: '混合型',
+    code: '000002', name: '贝塔', fundType: '混合型',
     ledgerCategory: '债', productForm: '固收+', equityRatio: 0.3, equityRatioSource: 'fetch',
     equityRatioAsOf: '2024-03-31'
   },
   {
-    code: '000003', name: '伽马', category: '黄金', fundType: '黄金',
+    code: '000003', name: '伽马', fundType: '黄金',
     ledgerCategory: '黄金', productForm: '黄金', equityRatio: 0, equityRatioSource: 'manual',
     equityRatioAsOf: null
   },
   {
-    code: '000004', name: '德尔塔', category: '权益', fundType: '混合型',
+    code: '000004', name: '德尔塔', fundType: '混合型',
     ledgerCategory: '权益', productForm: '权益', equityRatio: 1, equityRatioSource: 'manual',
     equityRatioAsOf: null
   },
   {
-    // 旧「流动性」兼容值：新模型下是 债 / 纯债
-    code: '000005', name: '艾普西龙', category: '流动性', fundType: '货币型',
+    // 货基型的纯债基金
+    code: '000005', name: '艾普西龙', fundType: '货币型',
     ledgerCategory: '债', productForm: '纯债', equityRatio: 0, equityRatioSource: 'manual',
     equityRatioAsOf: null
   }
@@ -313,13 +313,11 @@ describe('analysisSnapshot — 口径与排除项', () => {
     expect(build().dataFreshness).toEqual({ today: TODAY, latestNavDate: '2024-06-01' })
   })
 
-  it('不包含原始逐日净值序列、密钥、数据文件路径与旧五类标签', () => {
+  it('不包含原始逐日净值序列、密钥、数据文件路径与内部字段', () => {
     const snapshot = build()
     const json = serializeSnapshot(snapshot).json
     expect(json).not.toContain('9.9999') // 中间净值只存在于原始序列
-    // 旧五类兼容值只存在于数据库读取层，不进入快照
-    expect(json).not.toContain('固守+')
-    expect(json).not.toContain('流动性')
+    // 白名单之外的内部字段不进入快照
     const keys = collectKeys(snapshot)
     for (const forbidden of [
       'apiKey',

@@ -4,6 +4,7 @@ import type {
   Fund,
   FundPosition,
   NavPoint,
+  ProductForm,
   ReconstructedNav,
   SkippedSnapshot,
   Snapshot,
@@ -12,6 +13,16 @@ import type {
   TransactionRow
 } from '../engine'
 import type { ReconciliationReport } from './reconcile'
+
+/** 解析期基金：产品形态可能已识别，也可能只有原始标签（未知标签在预览中警告） */
+export interface ImportedFund {
+  code: string
+  name: string
+  fundType: string | null
+  productForm: ProductForm | null
+  /** 持仓概览中的原始类别标签；标签已识别或基金未出现在持仓概览时为 null */
+  rawCategoryLabel: string | null
+}
 
 /** 自动修复项（无需用户决策，预览中逐条展示） */
 export type FixKind =
@@ -101,7 +112,7 @@ export interface ParseSummary {
 }
 
 export interface ParseResult {
-  funds: Fund[]
+  funds: ImportedFund[]
   transactionRows: ParsedTransactionRow[]
   snapshots: Snapshot[]
   /** 预览用的重建结果；确认导入时以最终确认的流水重新计算 */
@@ -110,7 +121,7 @@ export interface ParseResult {
   /** 持仓概览最新净值 → 当前净值点（日期取流水最大日期） */
   currentNavPoints: NavPoint[]
   fixes: FixItem[]
-  /** 无法识别的大类/产品形态标签：预览中明确警告，导入写入前由统一校验拒绝 */
+  /** 无法识别的类别/产品形态标签：预览中明确警告，导入写入前由统一校验拒绝 */
   warnings: ImportWarning[]
   suspicious: SuspiciousItem[]
   expectation: ExcelExpectation
@@ -119,7 +130,7 @@ export interface ParseResult {
 
 /** 确认导入载荷：用户已在预览中修改可疑行后的最终数据 */
 export interface CommitPayload {
-  funds: Fund[]
+  funds: ImportedFund[]
   transactions: Transaction[]
   snapshots: Snapshot[]
   /** 净值取自持仓概览；主进程按最大流水日期校正后写入 */

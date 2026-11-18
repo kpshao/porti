@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   BucketTarget,
-  ClassifiedFund,
+  Fund,
   FundInput,
   FundSeriesRange,
   FundUpdateInput,
@@ -41,7 +41,7 @@ const api = {
   txDelete: (id: number): Promise<void> => ipcRenderer.invoke('tx:delete', id),
   fundCreate: (input: FundInput): Promise<void> => ipcRenderer.invoke('fund:create', input),
   fundConfigData: (): Promise<FundConfigData> => ipcRenderer.invoke('fund-config:data'),
-  fundConfigUpdate: (input: FundUpdateInput): Promise<ClassifiedFund> =>
+  fundConfigUpdate: (input: FundUpdateInput): Promise<Fund> =>
     ipcRenderer.invoke('fund-config:update', input),
   navData: (): Promise<NavData> => ipcRenderer.invoke('nav:data'),
   navFetch: (): Promise<NavFetchResult> => ipcRenderer.invoke('nav:fetch'),

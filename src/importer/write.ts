@@ -1,25 +1,26 @@
 // 导入写入：确认后的导入计划 → SQLite（单事务），含重复导入防护
 
 import type Database from 'better-sqlite3'
-import { normalizeFundInput, reconstructNavPoints, resolveProductFormLabel } from '../engine'
-import type { ClassifiedFund, Fund } from '../engine'
+import { normalizeFundInput, reconstructNavPoints } from '../engine'
+import type { Fund } from '../engine'
 import { hasAnyData, insertFund } from '../main/repo'
-import type { CommitPayload, ImportCounts } from './types'
+import type { CommitPayload, ImportCounts, ImportedFund } from './types'
 
 /**
- * 导入基金归一化：大类/产品形态标签映射为产品形态后，复用新建基金的同一校验与默认值，
- * 保证导入不会绕过产品形态 / 账本大类的一致性与权益系数规则。
+ * 导入基金归一化：复用新建基金的同一校验与默认值，保证导入不会绕过
+ * 产品形态 / 账本大类的一致性与权益系数规则。类别标签已在解析阶段映射为产品形态；
+ * 无法识别时 productForm 为空，这里明确报错。
  */
-function normalizeImportedFund(fund: Fund): ClassifiedFund {
-  const productForm = fund.productForm ?? resolveProductFormLabel(fund.category)
-  if (productForm === null) {
-    const label = fund.category.trim() === '' ? (fund.fundType ?? '空') : fund.category
-    throw new Error(`无法识别的大类或类型「${label}」（基金 ${fund.code}）`)
+function normalizeImportedFund(fund: ImportedFund): Fund {
+  if (fund.productForm === null) {
+    const raw = fund.rawCategoryLabel
+    const label = raw === null || raw.trim() === '' ? (fund.fundType ?? '空') : raw
+    throw new Error(`无法识别的类别或类型「${label}」（基金 ${fund.code}）`)
   }
   return normalizeFundInput({
     code: fund.code,
     name: fund.name,
-    productForm,
+    productForm: fund.productForm,
     fundType: fund.fundType
   })
 }

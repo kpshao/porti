@@ -1,62 +1,24 @@
-// 配置目标服务：旧大类目标种子（过渡）与配置桶目标的读取/保存
+// 配置目标服务：配置桶目标的读取与保存（目标只存在于配置桶层，见 ADR-0002 / ADR-0004）
 
 import type Database from 'better-sqlite3'
-import { ALLOCATION_BUCKETS, convertLegacyCategoryTargets } from '../engine'
-import type { AllocationBucket, BucketTarget, CategoryTarget } from '../engine'
-import { selectBucketTargets, selectCategoryTargets } from './repo'
-
-/** 默认大类目标（ticket #06 验收值）。新库只种子旧目标；配置桶目标在首次读取时折算（见 loadBucketTargets）。 */
-export const DEFAULT_CATEGORY_TARGETS: CategoryTarget[] = [
-  { category: '固守+', targetRatio: 0.25 },
-  { category: '纯债', targetRatio: 0.45 },
-  { category: '权益', targetRatio: 0.2 },
-  { category: '黄金', targetRatio: 0.05 },
-  { category: '流动性', targetRatio: 0.05 }
-]
-
-/** 新库种子默认旧大类目标；已有目标（如 Excel 导入值）不覆盖，仅补齐缺失大类 */
-export function seedDefaultCategoryTargets(db: Database.Database): void {
-  const insert = db.prepare(
-    'INSERT OR IGNORE INTO category_targets (category, target_ratio) VALUES (?,?)'
-  )
-  for (const t of DEFAULT_CATEGORY_TARGETS) insert.run(t.category, t.targetRatio)
-}
-
-export interface BucketTargetsState {
-  /** 顺序同 ALLOCATION_BUCKETS */
-  targets: BucketTarget[]
-  /** 目标表尚未初始化、当前值来自旧大类目标折算（界面展示一次性确认） */
-  targetConversionPending: boolean
-}
+import { ALLOCATION_BUCKETS } from '../engine'
+import type { AllocationBucket, BucketTarget } from '../engine'
+import { selectBucketTargets } from './repo'
 
 /**
- * 读取配置桶目标：
- * - 已保存过（哪怕三行都是 0）→ 直接返回，顺序固定；
- * - 尚未保存 → 从旧大类目标折算（不写库），可折算出非零目标时标记待确认。
- *   旧目标为 0 或只有流动性有值时视为未配置，不提示确认。
+ * 读取配置桶目标：按固定顺序返回三行；尚未保存过的桶按 0 处理（合计为 0 = 未配置）。
  */
-export function loadBucketTargets(db: Database.Database): BucketTargetsState {
-  const saved = selectBucketTargets(db)
-  if (saved.length > 0) {
-    const savedMap = new Map(saved.map((t) => [t.bucket, t.targetRatio]))
-    return {
-      targets: ALLOCATION_BUCKETS.map((bucket) => ({
-        bucket,
-        targetRatio: savedMap.get(bucket) ?? 0
-      })),
-      targetConversionPending: false
-    }
-  }
-  const converted = convertLegacyCategoryTargets(selectCategoryTargets(db))
-  return {
-    targets: converted,
-    targetConversionPending: converted.some((t) => t.targetRatio > 0)
-  }
+export function loadBucketTargets(db: Database.Database): BucketTarget[] {
+  const savedMap = new Map(selectBucketTargets(db).map((t) => [t.bucket, t.targetRatio]))
+  return ALLOCATION_BUCKETS.map((bucket) => ({
+    bucket,
+    targetRatio: savedMap.get(bucket) ?? 0
+  }))
 }
 
 /**
- * 保存配置桶目标（逐行编辑与「接受折算结果」共用）：必须包含三个配置桶各一行。
- * 写入后目标表非空，折算确认提示随之消失；全 0 也是合法的「未配置」状态，照常落库。
+ * 保存配置桶目标（逐行编辑）：必须包含三个配置桶各一行。
+ * 全 0 也是合法的「未配置」状态，照常落库。
  */
 export function saveBucketTargets(db: Database.Database, targets: BucketTarget[]): void {
   const ratios = new Map<AllocationBucket, number>()

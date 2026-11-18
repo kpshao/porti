@@ -1,12 +1,11 @@
 // 配置桶：把基金市值按权益系数穿透到 稳健 / 权益 / 黄金 三桶（口径见 CONTEXT.md「配置桶」）。
 
-import { DEFAULT_EQUITY_RATIO, resolveLegacyCategory } from './classification'
 import type { LedgerCategory } from './classification'
 import { isHeld } from './compute'
 import { ALLOCATION_BUCKETS } from './types'
-import type { AllocationBucket, BucketTarget, CategoryTarget, FundPosition } from './types'
+import type { AllocationBucket, BucketTarget, FundPosition } from './types'
 
-/** 配置对比所需的基金分类字段（ClassifiedFund 结构上满足） */
+/** 配置对比所需的基金分类字段（Fund 结构上满足） */
 export interface AllocationFund {
   code: string
   ledgerCategory: LedgerCategory
@@ -33,38 +32,6 @@ export interface AllocationComparison {
   targetNormalized: boolean // 合计 > 0 且 ≠ 100%
   equityComposition: AllocationEquityComposition
   missingNavCount: number // 缺最新净值的在持基金数
-}
-
-/**
- * 旧五类目标 → 三桶目标（迁移期一次性折算，口径见 CONTEXT.md「配置桶目标比例」）。
- * 复用 resolveLegacyCategory 处理「固收+」别名；流动性目标剔除，其余归一化后再拆桶。
- */
-export function convertLegacyCategoryTargets(targets: CategoryTarget[]): BucketTarget[] {
-  const retained = new Map<string, number>()
-  for (const target of targets) {
-    if (target.category === '流动性') continue
-    const resolution = resolveLegacyCategory(target.category)
-    if (resolution === null) continue
-    const form = resolution.classification.productForm
-    retained.set(form, (retained.get(form) ?? 0) + target.targetRatio)
-  }
-  const total = [...retained.values()].reduce((sum, ratio) => sum + ratio, 0)
-  if (total <= 0) {
-    return ALLOCATION_BUCKETS.map((bucket) => ({ bucket, targetRatio: 0 }))
-  }
-  const norm = (form: string): number => (retained.get(form) ?? 0) / total
-  const debtEquityRatio = DEFAULT_EQUITY_RATIO['固收+']
-  return [
-    {
-      bucket: '稳健',
-      targetRatio: norm('固收+') * (1 - debtEquityRatio) + norm('纯债')
-    },
-    {
-      bucket: '权益',
-      targetRatio: norm('固收+') * debtEquityRatio + norm('权益')
-    },
-    { bucket: '黄金', targetRatio: norm('黄金') }
-  ]
 }
 
 /** 空桶计数 */

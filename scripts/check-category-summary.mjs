@@ -35,8 +35,6 @@ const CDP = `http://127.0.0.1:${PORT}`
 // 端到端检查要与实现互为交叉验证，共用常量会让实现改名/改序时断言跟着错，失去独立事实来源的意义。
 /** 与 src/engine/classification.ts 的 PRODUCT_FORMS 保持一致（消费方按此声明顺序排序） */
 const PRODUCT_FORMS = ['固收+', '纯债', '权益', '黄金']
-/** 与 src/engine/compute.ts 的 OTHER_GROUP 保持一致 */
-const OTHER = '其他'
 /** 与 src/engine/compute.ts 的 CLOSED_GROUP 保持一致 */
 const CLOSED_GROUP = '已清仓'
 
@@ -395,13 +393,13 @@ try {
   const buckets = new Map()
   for (const p of positions) {
     if (!(p.shares > 0)) continue
-    const name = PRODUCT_FORMS.includes(p.productForm) ? p.productForm : OTHER
+    const name = p.productForm
     const bucket = buckets.get(name)
     if (bucket === undefined) buckets.set(name, [p])
     else bucket.push(p)
   }
   expectedGroups = []
-  for (const name of [...PRODUCT_FORMS, OTHER]) {
+  for (const name of PRODUCT_FORMS) {
     const rows = buckets.get(name)
     if (rows === undefined) continue
     rows.sort((a, b) => (a.fundCode < b.fundCode ? -1 : a.fundCode > b.fundCode ? 1 : 0))
@@ -508,7 +506,7 @@ check(
   scroll ? `${scroll.scrollWidth} vs ${scroll.clientWidth}` : ''
 )
 
-// 组集合与顺序：PRODUCT_FORMS 声明顺序，「其他」置底
+// 组集合与顺序：PRODUCT_FORMS 声明顺序
 const domNames = state.groups.map((g) => g.name)
 const expectedNames = expectedGroups.map((g) => g.name)
 check(

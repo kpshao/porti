@@ -4,7 +4,7 @@
 //
 // 用法：node scripts/check-fund-config.mjs [--port 9337]
 //
-// 流程：npm run build → 合成 v5 库建临时 profile → 启动 Electron → CDP 断言。
+// 流程：npm run build → 合成 v6 库建临时 profile → 启动 Electron → CDP 断言。
 //
 // 断言：
 //   1. 侧栏有「基金配置」页；表格列出全部基金（含已清仓），代码只读，页面无新建/删除入口；
@@ -81,7 +81,6 @@ const dbPath = join(profileDir, 'porti.db')
     CREATE TABLE funds (
       code TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      category TEXT NOT NULL,
       fund_type TEXT,
       ledger_category TEXT NOT NULL,
       product_form TEXT NOT NULL,
@@ -89,10 +88,6 @@ const dbPath = join(profileDir, 'porti.db')
       equity_ratio_source TEXT NOT NULL,
       equity_ratio_as_of TEXT,
       created_at TEXT NOT NULL
-    );
-    CREATE TABLE category_targets (
-      category TEXT PRIMARY KEY,
-      target_ratio REAL NOT NULL
     );
     CREATE TABLE bucket_targets (
       bucket TEXT PRIMARY KEY,
@@ -129,16 +124,16 @@ const dbPath = join(profileDir, 'porti.db')
       created_at TEXT NOT NULL
     );
   `)
-  db.pragma('user_version = 5')
+  db.pragma('user_version = 6')
   const insertFund = db.prepare(
-    `INSERT INTO funds (code, name, category, fund_type, ledger_category, product_form, equity_ratio, equity_ratio_source, equity_ratio_as_of, created_at)
-     VALUES (?,?,?,?,?,?,?,'manual',NULL,'2026-01-01')`
+    `INSERT INTO funds (code, name, fund_type, ledger_category, product_form, equity_ratio, equity_ratio_source, equity_ratio_as_of, created_at)
+     VALUES (?,?,?,?,?,?,'manual',NULL,'2026-01-01')`
   )
-  insertFund.run('910001', '测试固收+', '固守+', '二级债基', '债', '固收+', 0.2)
-  insertFund.run('910002', '测试纯债', '纯债', '一级债基', '债', '纯债', 0)
-  insertFund.run('910003', '测试权益', '权益', '宽基指数', '权益', '权益', 1)
-  insertFund.run('910004', '测试黄金', '黄金', '黄金', '黄金', '黄金', 0)
-  insertFund.run('910005', '测试已清仓', '纯债', '一级债基', '债', '纯债', 0)
+  insertFund.run('910001', '测试固收+', '二级债基', '债', '固收+', 0.2)
+  insertFund.run('910002', '测试纯债', '一级债基', '债', '纯债', 0)
+  insertFund.run('910003', '测试权益', '宽基指数', '权益', '权益', 1)
+  insertFund.run('910004', '测试黄金', '黄金', '黄金', '黄金', 0)
+  insertFund.run('910005', '测试已清仓', '一级债基', '债', '纯债', 0)
 
   const insertTx = db.prepare(
     `INSERT INTO transactions (date, type, fund_code, amount, shares, nav, fee, note, created_at, updated_at)
@@ -581,7 +576,6 @@ const reclassified = await waitFor(async () => {
 }, 10000)
 check(reclassified !== null, '确认后产品形态与账本大类已重分类落库')
 if (reclassified !== null) {
-  check(reclassified.fund.category === '固守+', '旧五类兼容列同步写为「固守+」', reclassified.fund.category)
   check(
     reclassified.state.confirms.length === 2 &&
       reclassified.state.confirms.every(
@@ -702,9 +696,9 @@ const created = await waitFor(() => dbFund('900099'), 10000)
 check(created !== null, '新基金已创建')
 if (created !== null) {
   check(
-    created.product_form === '固收+' && created.ledger_category === '债' && created.category === '固守+',
-    '新基金账本大类由产品形态派生，兼容列同步',
-    `${created.product_form}/${created.ledger_category}/${created.category}`
+    created.product_form === '固收+' && created.ledger_category === '债',
+    '新基金账本大类由产品形态派生',
+    `${created.product_form}/${created.ledger_category}`
   )
   check(created.equity_ratio === 0.2 && created.equity_ratio_source === 'manual', '新基金默认权益系数 20%')
 }

@@ -12,17 +12,12 @@ export const NAV_SOURCE_LABEL: Record<NavSource, string> = {
   manual: '手动'
 }
 
-export interface Fund {
+/** 基金（最终三层模型）：身份 + 账本大类 / 产品形态 / 权益系数 */
+export interface Fund extends FundClassification {
   code: string
   name: string
-  category: string // 旧五类兼容值（过渡字段，见 classification.ts）
   fundType: string | null
-  /** 产品形态（schema v4 起读取层返回；手写旧 Fund 可省略） */
-  productForm?: ProductForm
 }
-
-/** 带新模型字段的基金（schema v4 起每只基金都有；读取层与创建路径返回该类型） */
-export type ClassifiedFund = Fund & FundClassification
 
 /** 交易流水。库内约定：卖出金额与份额均存负值；分红现金份额为空。 */
 export interface Transaction {
@@ -53,11 +48,6 @@ export interface Snapshot {
   marketValue: number
 }
 
-export interface CategoryTarget {
-  category: string
-  targetRatio: number
-}
-
 /** 配置桶：配置对比的固定三行，按权益系数穿透后的资产口径（详见 CONTEXT.md「配置桶」） */
 export const ALLOCATION_BUCKETS = ['稳健', '权益', '黄金'] as const
 export type AllocationBucket = (typeof ALLOCATION_BUCKETS)[number]
@@ -71,12 +61,11 @@ export interface BucketTarget {
 export interface FundPosition {
   fundCode: string
   name: string
-  category: string // 旧五类兼容值（旧大类对比用；过渡字段，见 classification.ts）
-  productForm: ProductForm | null // 持仓分组的依据；旧兼容值无法识别时为 null
+  productForm: ProductForm // 持仓分组的依据
   fundType: string | null
   invested: number // 累计买入金额
   redeemed: number // 累计赎回金额（非负）
-  netCost: number // 累计净投入 = 累计买入 − 累计赎回（大类对比与总收益率分母用）
+  netCost: number // 累计净投入 = 累计买入 − 累计赎回（配置对比与总收益率分母用）
   costBasis: number // 持仓成本（移动加权平均成本基础，含手续费）
   shares: number // 当前份额
   latestNav: number | null
@@ -107,7 +96,7 @@ export interface ConcentrationMetrics {
 
 /** 概览持仓明细的组：组头 + 组内明细 */
 export interface PositionGroup {
-  name: string // 组名：PRODUCT_FORMS 之一、兜底组「其他」，或表尾组「已清仓」
+  name: string // 组名：PRODUCT_FORMS 之一，或表尾组「已清仓」
   marketValue: number | null // 组头合计（口径见 groupPositionsByProductForm）；组内全无净值时为 null
   pnlRatio: number | null // 组级盈亏比例 = Σ持仓盈亏 / Σ持仓成本（仅组内在持；任一市值未知或成本合计 ≤ 0 时为 null）
   annualized: number | null // 组级年化收益率（XIRR；口径见 groupPositionsByProductForm，无定义时为 null）
@@ -138,14 +127,6 @@ export interface SummaryData {
   all: ScopedSummary
   held: ScopedSummary
   perFundAnnualized: Record<string, number | null>
-}
-
-export interface CategoryComparisonRow {
-  category: string
-  targetRatio: number
-  investedRatio: number | null // 实际投入比例 = 大类在持持仓（份额 > 0）净投入 / 全部在持持仓净投入
-  marketRatio: number | null // 实际市值占比 = 大类市值 / 总市值
-  deviation: number | null // 偏离 = 实际市值占比 − 目标比例；该大类已清空（曾有流水、现无份额）或市值占比无定义时为 null
 }
 
 export interface TimePoint {

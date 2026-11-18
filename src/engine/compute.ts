@@ -9,8 +9,6 @@ import type {
   Totals,
   SummaryScope,
   ScopedSummary,
-  CategoryComparisonRow,
-  CategoryTarget,
   TimePoint,
   StatsPoint,
   FundSeriesPoint,
@@ -18,8 +16,7 @@ import type {
   WeeklyReturn,
   XirrCashFlow
 } from './types'
-import { CATEGORIES } from './validation'
-import { PRODUCT_FORMS, deriveProductForm } from './classification'
+import { PRODUCT_FORMS } from './classification'
 
 const NEVER = '9999-12-31'
 
@@ -178,8 +175,7 @@ export function computePositions(
     return {
       fundCode: fund.code,
       name: fund.name,
-      category: fund.category,
-      productForm: deriveProductForm(fund.category, fund.productForm),
+      productForm: fund.productForm,
       fundType: fund.fundType,
       invested,
       redeemed,
@@ -260,14 +256,6 @@ export function computeTotals(positions: FundPosition[], transactions: Transacti
   }
 }
 
-/** 兜底组名：产品形态缺失或不在 PRODUCT_FORMS 内的持仓（脏值、无法识别的旧类别）归入此组，恒定排在四组之后 */
-export const OTHER_GROUP = '其他'
-
-/** 是否为标准产品形态（PRODUCT_FORMS 闭集） */
-function isProductForm(value: string): boolean {
-  return (PRODUCT_FORMS as readonly string[]).includes(value)
-}
-
 /** 基金代码升序：代码是主键、不并列，故无需 tie-break。
  *  全代码库的基金排序契约只此一处定义（持仓分组、快照基金收益摘要共用）。 */
 export function byFundCode(a: { fundCode: string }, b: { fundCode: string }): number {
@@ -322,7 +310,7 @@ export function isHeld(p: FundPosition): boolean {
 /** 持仓明细的产品形态分组（概览页表格的组织方式）。规则：
  *  只纳入在持持仓（见 isHeld），过滤后为空的产品形态不产生组；
  *  已清仓持仓不在此，由 groupClosedPositions 收成表尾一组；
- *  组序按 PRODUCT_FORMS 声明顺序，兜底组「其他」恒定置底；组内按基金代码升序（见 byFundCode）。
+ *  组序按 PRODUCT_FORMS 声明顺序，组内按基金代码升序（见 byFundCode）。
  *  组级指标只统计组内在持持仓、不做权益穿透（穿透只属于配置对比）；
  *  组内任一市值未知时组级盈亏比例与组级年化收益率两项皆空。 */
 export function groupPositionsByProductForm(
@@ -333,13 +321,12 @@ export function groupPositionsByProductForm(
   const buckets = new Map<string, FundPosition[]>()
   for (const p of positions) {
     if (!isHeld(p)) continue
-    const key = p.productForm !== null && isProductForm(p.productForm) ? p.productForm : OTHER_GROUP
-    const bucket = buckets.get(key)
-    if (bucket === undefined) buckets.set(key, [p])
+    const bucket = buckets.get(p.productForm)
+    if (bucket === undefined) buckets.set(p.productForm, [p])
     else bucket.push(p)
   }
   const groups: PositionGroup[] = []
-  for (const form of [...PRODUCT_FORMS, OTHER_GROUP]) {
+  for (const form of PRODUCT_FORMS) {
     const rows = buckets.get(form)
     if (rows === undefined) continue
     rows.sort(byFundCode)
@@ -376,45 +363,6 @@ export function groupClosedPositions(positions: FundPosition[]): PositionGroup |
   if (rows.length === 0) return null
   // 已清仓组不是产品形态组，没有组级收益指标：两项恒为空
   return { name: CLOSED_GROUP, marketValue: null, pnlRatio: null, annualized: null, positions: rows }
-}
-
-/** 大类配置对比：目标比例 / 实际投入比例 / 实际市值占比 / 偏离。
- *  投入比例只统计仍**在持**的持仓（份额 > 0，判据是份额而非市值——持仓成本在、净值未录入时市值未知，
- *  但钱确实投在里面）：已清仓基金留下的净投入残留不进分子也不进分母，否则清空的大类会凭空占着比例
- *  （如止损清仓后净投入 = 亏损额，黄金 10358.20 / 总净投入 = 50.88%）。
- *  已清空的大类（曾有流水、现无在持份额）偏离为 null——不提示低配，也不假装配平；
- *  从未配置的大类偏离仍是 −目标比例（提示该仓位尚未建立）。
- *  行序按 CATEGORIES 声明顺序；闭集之外的类目排在其后（保留其在并集中的相对次序）。 */
-export function computeCategoryComparison(
-  positions: FundPosition[],
-  targets: CategoryTarget[]
-): CategoryComparisonRow[] {
-  const targetMap = new Map(targets.map((t) => [t.category, t.targetRatio]))
-  const categories = [...new Set([...targets.map((t) => t.category), ...positions.map((p) => p.category)])]
-  const rank = new Map<string, number>(CATEGORIES.map((c, i): [string, number] => [c, i]))
-  categories.sort(
-    (a, b) => (rank.get(a) ?? CATEGORIES.length) - (rank.get(b) ?? CATEGORIES.length)
-  )
-  const totalNetCost = positions.reduce((s, p) => s + (isHeld(p) ? p.netCost : 0), 0)
-  const totalAssets = positions.reduce((s, p) => s + (p.marketValue ?? 0), 0)
-  return categories.map((category) => {
-    const rows = positions.filter((p) => p.category === category)
-    const held = rows.filter(isHeld)
-    const catNetCost = held.reduce((s, p) => s + p.netCost, 0)
-    const catMarket = rows.reduce((s, p) => s + (p.marketValue ?? 0), 0)
-    const investedRatio = totalNetCost === 0 ? null : catNetCost / totalNetCost
-    const marketRatio = totalAssets === 0 ? null : catMarket / totalAssets
-    const cleared = held.length === 0 && rows.some(hasTraded)
-    const deviation =
-      marketRatio === null || cleared ? null : marketRatio - (targetMap.get(category) ?? 0)
-    return {
-      category,
-      targetRatio: targetMap.get(category) ?? 0,
-      investedRatio,
-      marketRatio,
-      deviation
-    }
-  })
 }
 
 /** 总市值时间序列：每个有净值记录的日期一个点。 */

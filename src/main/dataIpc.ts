@@ -149,25 +149,23 @@ export function registerDataIpc(): void {
         positionGroups: [],
         closedGroup: null,
         summary: null,
-        comparison: computeAllocationComparison([], [], []),
-        targetConversionPending: false
+        comparison: computeAllocationComparison([], [], [])
       }
     }
     const funds = selectFunds(db)
     const transactions = selectTransactions(db)
     const navPoints = selectNavPoints(db)
     const positions = computePositions(funds, transactions, navPoints)
-    const { targets, targetConversionPending } = loadBucketTargets(db)
+    const targets = loadBucketTargets(db)
     const comparison = computeAllocationComparison(positions, funds, targets)
-    // 每次请求只取一次「今天」：汇总年化与大类年化收益率用同一个期末估值日，避免跨午夜不一致
+    // 每次请求只取一次「今天」：汇总年化与组级年化收益率用同一个期末估值日，避免跨午夜不一致
     const today = todayString()
     return {
       funds,
       positionGroups: groupPositionsByProductForm(positions, transactions, today),
       closedGroup: groupClosedPositions(positions),
       summary: computeSummaryData(positions, transactions, navPoints, today),
-      comparison,
-      targetConversionPending
+      comparison
     }
   })
 
@@ -348,7 +346,7 @@ export function registerDataIpc(): void {
 
 /** 汇总数据组装：同一组入参一次算好两种口径（all/held）与单基金年化映射。
  *  两页共用，切换口径只换展示字段、不重新取数。
- *  today 由调用方每次请求只取一次，与同请求内的大类年化收益率共用同一个期末估值日。 */
+ *  today 由调用方每次请求只取一次，与同请求内的组级年化收益率共用同一个期末估值日。 */
 function computeSummaryData(
   positions: FundPosition[],
   transactions: Transaction[],

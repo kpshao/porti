@@ -79,9 +79,8 @@ export default function Overview(): React.JSX.Element {
   const heldGroups = data?.positionGroups ?? []
   const groupsToShow = showClosed && closedGroup !== null ? [...heldGroups, closedGroup] : heldGroups
 
-  /** 保存三桶目标（百分比录入）：非数字本地回退，范围与完整性由服务层把关。
-   *  allowUnchanged = true 供「接受折算结果」使用——即使数值未改也要落库，让确认提示消失。 */
-  const persistTargets = (allowUnchanged: boolean): void => {
+  /** 保存三桶目标（百分比录入）：非数字本地回退，范围与完整性由服务层把关。 */
+  const persistTargets = (): void => {
     if (data === null) return
     const rows = data.comparison.rows
     const payload: BucketTarget[] = []
@@ -95,15 +94,13 @@ export default function Overview(): React.JSX.Element {
       }
       payload.push({ bucket: row.bucket, targetRatio: n / 100 })
     }
-    if (!allowUnchanged) {
-      const changed = payload.some((t) => {
-        const original = rows.find((r) => r.bucket === t.bucket)?.targetRatio ?? 0
-        return Math.abs(t.targetRatio - original) >= 1e-9
-      })
-      if (!changed) {
-        setRatioEdits({})
-        return
-      }
+    const changed = payload.some((t) => {
+      const original = rows.find((r) => r.bucket === t.bucket)?.targetRatio ?? 0
+      return Math.abs(t.targetRatio - original) >= 1e-9
+    })
+    if (!changed) {
+      setRatioEdits({})
+      return
     }
     setBusy(true)
     window.api
@@ -120,9 +117,7 @@ export default function Overview(): React.JSX.Element {
   }
 
   /** 行内编辑提交：数值没变就不写库 */
-  const saveEditedTargets = (): void => persistTargets(false)
-  /** 接受旧目标折算结果：目标表尚未初始化，数值「没变」也必须落库 */
-  const acceptConvertedTargets = (): void => persistTargets(true)
+  const saveEditedTargets = (): void => persistTargets()
 
   return (
     <section className="page">
@@ -228,24 +223,6 @@ export default function Overview(): React.JSX.Element {
       {hasData && (
         <div className="card card-allocation">
           <h2>配置对比</h2>
-          {data.targetConversionPending && (
-            <div className="banner banner-info allocation-conversion">
-              <p>
-                旧的大类目标已折算为三个配置桶：
-                {data.comparison.rows
-                  .map((r) => `${r.bucket} ${formatPercent(r.targetRatio)}`)
-                  .join(' / ')}
-                。确认后作为新的配置基准，也可以在下方逐行调整。
-              </p>
-              <button
-                className="btn btn-compact btn-primary allocation-conversion-confirm"
-                onClick={acceptConvertedTargets}
-                disabled={busy}
-              >
-                接受折算结果
-              </button>
-            </div>
-          )}
           {data.comparison.targetNormalized && (
             <div className="banner banner-info allocation-target-warning">
               {`目标合计 ${formatPercent(data.comparison.targetTotal)}，不等于 100%；偏离按归一化目标计算。`}

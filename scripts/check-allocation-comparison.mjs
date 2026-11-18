@@ -4,14 +4,14 @@
 //
 // 用法：node scripts/check-allocation-comparison.mjs [--port 9336]
 //
-// 流程：npm run build → 用合成 v4 库（旧五类目标）建临时 profile → 启动 Electron → CDP 断言。
+// 流程：npm run build → 用合成 v6 库（最终三层模型，三桶目标）建临时 profile → 启动 Electron → CDP 断言。
 //
 // 断言：
 //   1. 配置对比只有 稳健 / 权益 / 黄金 三行，黄金行常驻；表头四列口径不变；
 //   2. 实际投入比例 / 实际市值占比 / 偏离与库内独立重算一致，三桶市值占比合计 100%；
 //   3. 已清仓基金的净投入残留不进分子分母；缺净值的在持基金投入计入、市值按 0 计并提示；
 //   4. 表下小字给出「直接权益 + 债类穿透」构成；
-//   5. 首次出现时展示旧目标折算结果；接受后落库且提示消失；
+//   5. 初始三桶目标与偏离正确（无旧目标折算提示）；
 //   6. 逐行编辑：合计非 100% 时警告、偏离按归一化目标；三桶全 0 时偏离显示「—」。
 //
 // 合成夹具（基金代码为不存在的 9xxxxx，避免启动自动抓取改写净值）：
@@ -21,7 +21,7 @@
 //   D 黄金/黄金 系数 0，净投入 1000，市值 1000；
 //   E 债/纯债 已清仓，净投入残留 300（不得进入比例分母）；
 //   F 债/纯债 在持但缺净值，净投入 1000（投入计入、市值按 0）。
-//   旧目标 30/30/20/10/10 → 折算：稳健 60%、权益 28.89%、黄金 11.11%。
+//   三桶目标 50/30/20 → 稳健 50%、权益 30%、黄金 20%。
 //
 // 退出码：0 = 通过；1 = RED。
 //
@@ -72,7 +72,7 @@ if (build.status !== 0) {
   process.exit(1)
 }
 
-// ---- 2. 合成夹具（v4：已有账本大类/产品形态/权益系数，尚无配置桶目标表）----
+// ---- 2. 合成夹具（v6：最终三层模型，无旧分类列与旧目标表）----
 const profileDir = mkdtempSync(join(tmpdir(), 'porti-allocation-check-'))
 const dbPath = join(profileDir, 'porti.db')
 {
@@ -81,7 +81,6 @@ const dbPath = join(profileDir, 'porti.db')
     CREATE TABLE funds (
       code TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      category TEXT NOT NULL,
       fund_type TEXT,
       ledger_category TEXT NOT NULL,
       product_form TEXT NOT NULL,
@@ -90,8 +89,8 @@ const dbPath = join(profileDir, 'porti.db')
       equity_ratio_as_of TEXT,
       created_at TEXT NOT NULL
     );
-    CREATE TABLE category_targets (
-      category TEXT PRIMARY KEY,
+    CREATE TABLE bucket_targets (
+      bucket TEXT PRIMARY KEY,
       target_ratio REAL NOT NULL
     );
     CREATE TABLE transactions (
@@ -115,17 +114,17 @@ const dbPath = join(profileDir, 'porti.db')
       PRIMARY KEY (fund_code, date)
     );
   `)
-  db.pragma('user_version = 4')
+  db.pragma('user_version = 6')
   const insertFund = db.prepare(
-    `INSERT INTO funds (code, name, category, fund_type, ledger_category, product_form, equity_ratio, equity_ratio_source, equity_ratio_as_of, created_at)
-     VALUES (?,?,?,?,?,?,?,'manual',NULL,'2026-01-01')`
+    `INSERT INTO funds (code, name, fund_type, ledger_category, product_form, equity_ratio, equity_ratio_source, equity_ratio_as_of, created_at)
+     VALUES (?,?,?,?,?,?,'manual',NULL,'2026-01-01')`
   )
-  insertFund.run('900001', '测试固收+', '固守+', '二级债基', '债', '固收+', 0.2)
-  insertFund.run('900002', '测试纯债', '纯债', '一级债基', '债', '纯债', 0)
-  insertFund.run('900003', '测试权益', '权益', '宽基指数', '权益', '权益', 1)
-  insertFund.run('900004', '测试黄金', '黄金', '黄金', '黄金', '黄金', 0)
-  insertFund.run('900005', '测试已清仓', '纯债', '一级债基', '债', '纯债', 0)
-  insertFund.run('900006', '测试缺净值', '纯债', '一级债基', '债', '纯债', 0)
+  insertFund.run('900001', '测试固收+', '二级债基', '债', '固收+', 0.2)
+  insertFund.run('900002', '测试纯债', '一级债基', '债', '纯债', 0)
+  insertFund.run('900003', '测试权益', '宽基指数', '权益', '权益', 1)
+  insertFund.run('900004', '测试黄金', '黄金', '黄金', '黄金', 0)
+  insertFund.run('900005', '测试已清仓', '一级债基', '债', '纯债', 0)
+  insertFund.run('900006', '测试缺净值', '一级债基', '债', '纯债', 0)
 
   const insertTx = db.prepare(
     `INSERT INTO transactions (date, type, fund_code, amount, shares, nav, fee, note, created_at, updated_at)
@@ -149,7 +148,7 @@ const dbPath = join(profileDir, 'porti.db')
   // 900006 故意不写净值
 
   db.prepare(
-    "INSERT INTO category_targets (category, target_ratio) VALUES ('固守+', 0.30), ('纯债', 0.30), ('权益', 0.20), ('黄金', 0.10), ('流动性', 0.10)"
+    "INSERT INTO bucket_targets (bucket, target_ratio) VALUES ('稳健', 0.5), ('权益', 0.3), ('黄金', 0.2)"
   ).run()
   db.close()
 }
@@ -331,7 +330,6 @@ const READ_ALLOCATION = `(() => {
   const card = document.querySelector('.card-allocation')
   if (!card) return { error: 'no-card' }
   const table = card.querySelector('table.table')
-  const conversion = card.querySelector('.allocation-conversion')
   const warning = card.querySelector('.allocation-target-warning')
   return {
     heading: card.querySelector('h2')?.textContent?.trim() ?? '',
@@ -345,8 +343,6 @@ const READ_ALLOCATION = `(() => {
           deviation: tr.children[4]?.textContent?.trim() ?? ''
         }))
       : [],
-    conversionText: conversion?.textContent?.trim() ?? null,
-    conversionButton: conversion?.querySelector('button')?.textContent?.trim() ?? null,
     warningText: warning?.textContent?.trim() ?? null,
     footnote: card.querySelector('p.muted')?.textContent?.trim() ?? ''
   }
@@ -363,8 +359,8 @@ if (ready === null) {
   process.exit(1)
 }
 
-// ---- 5. 首次出现：三行、四列、折算确认、独立重算的比例 ----------------------
-console.log('配置对比（首次出现，目标来自旧大类折算）')
+// ---- 5. 首次出现：三行、四列、初始目标与独立重算的比例 ----------------------
+console.log('配置对比（首次出现，三桶目标来自库内）')
 check(ready.heading === '配置对比', '卡片标题为「配置对比」', ready.heading)
 check(JSON.stringify(ready.headers) === JSON.stringify(HEADERS), '表头为四列口径', ready.headers.join('/'))
 check(
@@ -373,29 +369,15 @@ check(
   ready.rows.map((r) => r.bucket).join(' → ')
 )
 
-const converted = { 稳健: 60, 权益: (26 / 90) * 100, 黄金: (10 / 90) * 100 }
+const initialTargets = { 稳健: 50, 权益: 30, 黄金: 20 }
 for (const r of ready.rows) {
   check(
-    Math.abs(Number(r.targetInput) - converted[r.bucket]) <= 0.005,
-    `「${r.bucket}」目标显示旧目标折算结果`,
-    `${r.targetInput}% vs ${converted[r.bucket].toFixed(2)}%`
+    Math.abs(Number(r.targetInput) - initialTargets[r.bucket]) <= 0.005,
+    `「${r.bucket}」目标来自库内三桶目标`,
+    `${r.targetInput}% vs ${initialTargets[r.bucket].toFixed(2)}%`
   )
 }
-check(
-  ready.conversionText !== null && ready.conversionText.includes('旧的大类目标已折算'),
-  '首次出现展示折算确认说明',
-  ready.conversionText ?? '缺少提示'
-)
-check(ready.conversionButton === '接受折算结果', '提供「接受折算结果」按钮', ready.conversionButton ?? '缺少按钮')
-check(
-  (() => {
-    const db = new Database(dbPath, { readonly: true })
-    const n = db.prepare('SELECT COUNT(*) AS n FROM bucket_targets').get().n
-    db.close()
-    return n === 0
-  })(),
-  '确认前不把折算结果写入 bucket_targets'
-)
+check(ready.warningText === null, '初始目标合计 100% 时不显示归一化警告', ready.warningText ?? '')
 
 for (const r of ready.rows) {
   check(
@@ -407,6 +389,12 @@ for (const r of ready.rows) {
     samePercent(r.marketRatio, expected.market[r.bucket]),
     `「${r.bucket}」实际市值占比与库内独立重算一致`,
     `${r.marketRatio} vs ${expected.market[r.bucket].toFixed(2)}%`
+  )
+  const wantDeviation = expected.market[r.bucket] - initialTargets[r.bucket]
+  check(
+    samePercent(r.deviation.replace(/[↑↓超配低]/g, '').trim(), wantDeviation),
+    `「${r.bucket}」偏离 = 市值占比 − 目标`,
+    `${r.deviation} vs ${wantDeviation.toFixed(2)}%`
   )
 }
 const marketSum = ready.rows.reduce((s, r) => s + (num(r.marketRatio) ?? 0), 0)
@@ -431,34 +419,6 @@ await new Promise((r) => setTimeout(r, 300))
 const shot = await send('Page.captureScreenshot', { format: 'png' })
 const shotPath = join(tmpdir(), 'porti-allocation-comparison.png')
 writeFileSync(shotPath, Buffer.from(shot.data, 'base64'))
-
-// ---- 6. 接受折算结果：落库、提示消失、目标与偏离不变 -----------------------
-const accepted = await evalJs(`(() => {
-  const btn = document.querySelector('.allocation-conversion-confirm')
-  if (!btn) return false
-  btn.click()
-  return true
-})()`)
-check(accepted === true, '点击「接受折算结果」')
-const afterAccept = await waitFor(async () => {
-  const state = await evalJs(READ_ALLOCATION)
-  const db = new Database(dbPath, { readonly: true })
-  const count = db.prepare('SELECT COUNT(*) AS n FROM bucket_targets').get().n
-  const saved = db.prepare('SELECT bucket, target_ratio FROM bucket_targets ORDER BY bucket').all()
-  db.close()
-  return state.error === undefined && state.conversionText === null && count === 3 ? { state, saved } : null
-}, 10000)
-check(afterAccept !== null, '接受后确认提示消失且三桶目标落库')
-if (afterAccept !== null) {
-  const saved = new Map(afterAccept.saved.map((r) => [r.bucket, r.target_ratio * 100]))
-  const bad = BUCKETS.filter((b) => Math.abs(saved.get(b) - converted[b]) > 0.005)
-  check(bad.length === 0, '落库值 = 折算结果', bad.join(', '))
-  const badDev = afterAccept.state.rows.filter((r) => {
-    const want = (expected.market[r.bucket] ?? 0) - converted[r.bucket]
-    return !samePercent(r.deviation.replace(/[↑↓超配低]/g, '').trim(), want)
-  })
-  check(badDev.length === 0, '接受后偏离 = 市值占比 − 折算目标', badDev.map((r) => r.bucket).join(', '))
-}
 
 // ---- 7. 逐行编辑：合计非 100% 警告 + 归一化偏离 -----------------------------
 /** 设置某一桶目标（百分比文本），失焦触发保存 */
@@ -490,7 +450,7 @@ check((await setTarget('稳健', '30')) === true, '编辑稳健目标为 30%')
 const normalized = await waitTargets({ 稳健: 30 })
 check(normalized !== null, '目标保存后重新加载（稳健 30.00%）')
 if (normalized !== null) {
-  const total = 30 + converted['权益'] + converted['黄金']
+  const total = 30 + initialTargets['权益'] + initialTargets['黄金']
   check(
     normalized.warningText !== null &&
       normalized.warningText.includes(`目标合计 ${total.toFixed(2)}%`) &&
@@ -498,7 +458,7 @@ if (normalized !== null) {
     '合计不等于 100% 时显示警告并说明按归一化目标计算偏离',
     normalized.warningText ?? '缺少警告'
   )
-  const currentTargets = { 稳健: 30, 权益: converted['权益'], 黄金: converted['黄金'] }
+  const currentTargets = { 稳健: 30, 权益: initialTargets['权益'], 黄金: initialTargets['黄金'] }
   const normalizedTarget = (bucket) => (currentTargets[bucket] / total) * 100
   const robust = normalized.rows.find((r) => r.bucket === '稳健')
   const equity = normalized.rows.find((r) => r.bucket === '权益')

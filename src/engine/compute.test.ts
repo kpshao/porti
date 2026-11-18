@@ -6,14 +6,13 @@ import type {
   NavPoint,
   FundSeriesPoint,
   FundPosition,
-  PositionGroup,
-  CategoryTarget
+  PositionGroup
 } from './types'
 import type { ProductForm } from './classification'
+import { normalizeFundInput } from './validation'
 import {
   computePositions,
   computeTotals,
-  computeCategoryComparison,
   computeTimeSeries,
   computeWeeklyReturn,
   computeStatsSeries,
@@ -27,7 +26,6 @@ import {
   realizedForSale,
   groupPositionsByProductForm,
   groupClosedPositions,
-  OTHER_GROUP,
   CLOSED_GROUP,
   computeScopedSummary,
   computeConcentrationMetrics,
@@ -35,19 +33,16 @@ import {
   xirr
 } from './compute'
 
-/** 构造持仓：只关心分组与对比用到的字段，其余给中性值。
- *  category 是旧五类兼容值（旧大类对比用），productForm 是持仓分组的依据。 */
+/** 构造持仓：只关心分组与对比用到的字段，其余给中性值。 */
 function mkPosition(
   fundCode: string,
-  category: string,
+  productForm: ProductForm,
   marketValue: number | null,
-  shares = 100,
-  productForm: ProductForm | null = null
+  shares = 100
 ): FundPosition {
   return {
     fundCode,
     name: fundCode,
-    category,
     productForm,
     fundType: null,
     invested: 0,
@@ -61,6 +56,18 @@ function mkPosition(
     pnl: null,
     pnlRatio: null
   }
+}
+
+/** 构造基金：分类字段按产品形态的默认值派生，测试通常只关心代码与形态。 */
+function mkFund(
+  code: string,
+  name: string,
+  productForm: ProductForm,
+  fundType: string | null = null
+): Fund {
+  // 用例里的代码常是 A/B 之类的可读标识；分类字段仍走生产派生规则
+  const derived = normalizeFundInput({ code: '000000', name, productForm, fundType })
+  return { ...derived, code, name }
 }
 
 /** 既有分组用例的适配入口：这些用例不关心组级指标，流水给空值、今天给固定日。 */
@@ -85,11 +92,11 @@ describe('数据新鲜度日期（latestNavDate）', () => {
 // ---------- Golden fixtures：取自 投资跟踪.xlsx 持仓概览的真实数据 ----------
 
 const goldenFunds: Fund[] = [
-  { code: '110017', name: '易方达增强回报债券A', category: '固守+', fundType: '二级债基' },
-  { code: '002009', name: '中欧瑾通A', category: '固守+', fundType: '偏债混合' },
-  { code: '512890', name: '华泰柏瑞红利低波ETF', category: '权益', fundType: '红利ETF' },
-  { code: '000217', name: '华安黄金ETF联接C', category: '黄金', fundType: '黄金' },
-  { code: '007824', name: '天弘弘择短债债券C', category: '流动性', fundType: '短债' }
+  mkFund('110017', '易方达增强回报债券A', '固收+', '二级债基'),
+  mkFund('002009', '中欧瑾通A', '固收+', '偏债混合'),
+  mkFund('512890', '华泰柏瑞红利低波ETF', '权益', '红利ETF'),
+  mkFund('000217', '华安黄金ETF联接C', '黄金', '黄金'),
+  mkFund('007824', '天弘弘择短债债券C', '纯债', '短债')
 ]
 
 const goldenTransactions: Transaction[] = [
@@ -195,39 +202,18 @@ describe('computePositions — Excel golden values（持仓概览 5 只基金逐
 })
 
 describe('computePositions — 产品形态', () => {
-  it('旧五类派生：固守+ → 固收+，流动性 → 纯债', () => {
+  it('持仓沿用基金自身的产品形态', () => {
     const positions = computePositions(
-      [
-        { code: '100001', name: 'A', category: '固守+', fundType: null },
-        { code: '100002', name: 'B', category: '流动性', fundType: null }
-      ],
+      [mkFund('100001', 'A', '固收+'), mkFund('100002', 'B', '纯债')],
       [],
       []
     )
     expect(positions.map((p) => p.productForm)).toEqual(['固收+', '纯债'])
   })
-
-  it('新模型字段优先于旧兼容值', () => {
-    const [p] = computePositions(
-      [{ code: '100003', name: 'C', category: '固守+', fundType: null, productForm: '黄金' }],
-      [],
-      []
-    )
-    expect(p.productForm).toBe('黄金')
-  })
-
-  it('无法识别的旧类别：产品形态为空，分组时归入「其他」', () => {
-    const [p] = computePositions(
-      [{ code: '100004', name: 'D', category: '股票型', fundType: null }],
-      [],
-      []
-    )
-    expect(p.productForm).toBeNull()
-  })
 })
 
 describe('卖出与分红现金', () => {
-  const fund: Fund = { code: '999001', name: '测试基金', category: '权益', fundType: null }
+  const fund = mkFund('999001', '测试基金', '权益')
   const transactions: Transaction[] = [
     { date: '2026-01-01', type: '买入', fundCode: '999001', amount: 2000, shares: 1000, nav: 2, fee: 0, note: null },
     { date: '2026-02-01', type: '卖出', fundCode: '999001', amount: -1100, shares: -500, nav: 2.2, fee: 0, note: null },
@@ -261,7 +247,7 @@ describe('卖出与分红现金', () => {
 })
 
 describe('边界情况', () => {
-  const fund: Fund = { code: '999002', name: '空基金', category: '纯债', fundType: null }
+  const fund = mkFund('999002', '空基金', '纯债')
 
   it('无任何流水：零持仓，收益率保护为 null', () => {
     const [p] = computePositions([fund], [], [])
@@ -296,167 +282,24 @@ describe('边界情况', () => {
   })
 })
 
-describe('大类配置对比', () => {
-  it('投入比例/市值占比/偏离计算正确', () => {
-    // 在持（份额 > 0）——投入比例只统计这类持仓
-    const positions: FundPosition[] = [
-      { fundCode: 'A', name: 'A', category: '固守+', productForm: '固收+', fundType: null, invested: 300, redeemed: 0, netCost: 300, costBasis: 300, shares: 300, latestNav: null, latestNavDate: null, marketValue: 330, pnl: 30, pnlRatio: 0.1 },
-      { fundCode: 'B', name: 'B', category: '权益', productForm: '权益', fundType: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 110, pnl: 10, pnlRatio: 0.1 },
-      { fundCode: 'C', name: 'C', category: '黄金', productForm: '黄金', fundType: null, invested: 100, redeemed: 0, netCost: 100, costBasis: 100, shares: 100, latestNav: null, latestNavDate: null, marketValue: 100, pnl: 0, pnlRatio: 0 }
-    ]
-    const targets: CategoryTarget[] = [
-      { category: '固守+', targetRatio: 0.25 },
-      { category: '纯债', targetRatio: 0.45 },
-      { category: '权益', targetRatio: 0.2 },
-      { category: '黄金', targetRatio: 0.05 },
-      { category: '流动性', targetRatio: 0.05 }
-    ]
-    const rows = computeCategoryComparison(positions, targets)
-    const byCat = new Map(rows.map((r) => [r.category, r]))
-
-    const gs = byCat.get('固守+')!
-    expect(gs.investedRatio).toBeCloseTo(0.6, 9) // 300/500
-    expect(gs.marketRatio).toBeCloseTo(330 / 540, 9)
-    expect(gs.deviation).toBeCloseTo(330 / 540 - 0.25, 9)
-
-    const eq = byCat.get('权益')!
-    expect(eq.investedRatio).toBeCloseTo(0.2, 9)
-    expect(eq.marketRatio).toBeCloseTo(110 / 540, 9)
-    expect(eq.deviation).toBeCloseTo(110 / 540 - 0.2, 9)
-
-    // 无持仓大类：比例为 0，偏离 = −目标比例
-    const pure = byCat.get('纯债')!
-    expect(pure.investedRatio).toBeCloseTo(0, 9)
-    expect(pure.marketRatio).toBeCloseTo(0, 9)
-    expect(pure.deviation).toBeCloseTo(-0.45, 9)
-
-    // 有持仓但无目标的大类：目标按 0 处理
-    const gold = byCat.get('黄金')!
-    expect(gold.targetRatio).toBe(0.05)
-    expect(rows.length).toBe(5)
-  })
-
-  it('大类清仓后：投入比例记 0、偏离为 null；分母只含仍在持的持仓', () => {
-    // 真实场景：000217 华安黄金ETF联接C 清仓（净投入 10358.20 残留），黄金大类只剩它
-    const clearedGold: FundPosition = {
-      ...mkPosition('000217', '黄金', 0, 0),
-      invested: 59050,
-      redeemed: 48691.8,
-      netCost: 10358.2
-    }
-    const heldEquity: FundPosition = {
-      ...mkPosition('512890', '权益', 12000),
-      invested: 10000,
-      netCost: 10000,
-      costBasis: 10000
-    }
-    const targets: CategoryTarget[] = [
-      { category: '纯债', targetRatio: 0.45 },
-      { category: '权益', targetRatio: 0.2 },
-      { category: '黄金', targetRatio: 0.05 }
-    ]
-    const rows = computeCategoryComparison([clearedGold, heldEquity], targets)
-    const byCat = new Map(rows.map((r) => [r.category, r]))
-
-    // 清仓大类：投入比例 0（不再凭空占 10358.20 / 20358.20 = 50.88%）
-    const gold = byCat.get('黄金')!
-    expect(gold.investedRatio).toBe(0)
-    expect(gold.marketRatio).toBe(0)
-    expect(gold.deviation).toBeNull() // 已清空 → 不再提示低配
-
-    // 分母只含仍在持的持仓（10000，而非 20358.20）
-    const equity = byCat.get('权益')!
-    expect(equity.investedRatio).toBeCloseTo(1, 9)
-    expect(equity.marketRatio).toBeCloseTo(1, 9)
-    expect(equity.deviation).toBeCloseTo(0.8, 9)
-
-    // 从未配置的大类：口径不变，仍是 −目标比例（提示尚未建立该仓位）
-    expect(byCat.get('纯债')!.investedRatio).toBe(0)
-    expect(byCat.get('纯债')!.deviation).toBeCloseTo(-0.45, 9)
-  })
-
-  it('混合场景：部分大类清仓时分母只累加在持持仓的净投入', () => {
-    const positions: FundPosition[] = [
-      { ...mkPosition('100001', '固守+', 30000), invested: 30000, netCost: 30000, costBasis: 30000 },
-      { ...mkPosition('200001', '权益', 8000), invested: 10000, netCost: 10000, costBasis: 10000 },
-      // 两只已清仓基金：净投入残留分别 5000 / 8000，均不得进入分母
-      { ...mkPosition('400001', '黄金', 0, 0), invested: 20000, redeemed: 15000, netCost: 5000 },
-      { ...mkPosition('500001', '流动性', 0, 0), invested: 8000, redeemed: 8000, netCost: 0 }
-    ]
-    const targets: CategoryTarget[] = [
-      { category: '固守+', targetRatio: 0.8 },
-      { category: '权益', targetRatio: 0.2 },
-      { category: '黄金', targetRatio: 0 },
-      { category: '流动性', targetRatio: 0 }
-    ]
-    const rows = computeCategoryComparison(positions, targets)
-    const byCat = new Map(rows.map((r) => [r.category, r]))
-
-    // 分母 = 30000 + 10000 = 40000（不含清仓残留的 5000）
-    expect(byCat.get('固守+')!.investedRatio).toBeCloseTo(0.75, 9)
-    expect(byCat.get('权益')!.investedRatio).toBeCloseTo(0.25, 9)
-    // 净资产全部赎回（净投入恰好为 0）的已清仓大类：比例 0，偏离亦为 null
-    expect(byCat.get('流动性')!.investedRatio).toBe(0)
-    expect(byCat.get('流动性')!.deviation).toBeNull()
-    expect(byCat.get('黄金')!.deviation).toBeNull()
-    // 市值占比的分母不受清仓影响（清仓持仓市值恒为 0）
-    expect(byCat.get('固守+')!.marketRatio).toBeCloseTo(30000 / 38000, 9)
-  })
-
-  it('行序按 CATEGORIES 声明顺序；闭集之外的类目排在其后且保持并集内相对次序', () => {
-    const positions = [
-      mkPosition('200001', '黄金', 100),
-      mkPosition('300001', '股票型', 100),
-      mkPosition('300002', 'QDII', 100),
-      mkPosition('100001', '固守+', 100)
-    ]
-    const targets: CategoryTarget[] = [
-      { category: '流动性', targetRatio: 0.05 },
-      { category: '固守+', targetRatio: 0.25 }
-    ]
-    const rows = computeCategoryComparison(positions, targets)
-    // 并集顺序为 流动性/固守+/黄金/股票型/QDII；按 CATEGORIES 排名后 = 固守+(0) → 黄金(3) → 流动性(4)
-    // → 闭集外的股票型、QDII（同分，稳定排序保持并集内相对次序）
-    expect(rows.map((r) => r.category)).toEqual(['固守+', '黄金', '流动性', '股票型', 'QDII'])
-  })
-})
-
 describe('持仓明细按产品形态分组', () => {
   it('组序按 PRODUCT_FORMS 声明顺序（输入乱序也如此），组内按基金代码升序', () => {
     const groups = groupHeldPositions([
-      mkPosition('300001', '黄金', 300, 100, '黄金'),
-      mkPosition('200002', '权益', 100, 100, '权益'),
-      mkPosition('200001', '权益', 200, 100, '权益'),
-      mkPosition('100001', '固守+', 500, 100, '固收+')
+      mkPosition('300001', '黄金', 300, 100),
+      mkPosition('200002', '权益', 100, 100),
+      mkPosition('200001', '权益', 200, 100),
+      mkPosition('100001', '固收+', 500, 100)
     ])
     expect(groups.map((g) => g.name)).toEqual(['固收+', '权益', '黄金'])
     // 组内按代码升序，与市值无关（200001 市值更小仍排在 200002 前面）
     expect(groups[1].positions.map((p) => p.fundCode)).toEqual(['200001', '200002'])
   })
 
-  it('旧流动性基金按产品形态归入纯债，不再出现独立的流动性组', () => {
-    const groups = groupHeldPositions([
-      mkPosition('100002', '流动性', 100, 100, '纯债'),
-      mkPosition('100001', '纯债', 200, 100, '纯债')
-    ])
-    expect(groups.map((g) => g.name)).toEqual(['纯债'])
-    expect(groups[0].positions.map((p) => p.fundCode)).toEqual(['100001', '100002'])
-  })
-
-  it('固收+ 组显示新名称「固收+」，不出现旧拼写「固守+」', () => {
-    const groups = groupHeldPositions([
-      mkPosition('100001', '固守+', 500, 100, '固收+'),
-      mkPosition('100002', '纯债', 100, 100, '纯债')
-    ])
-    expect(groups.map((g) => g.name)).toEqual(['固收+', '纯债'])
-    expect(groups.map((g) => g.name)).not.toContain('固守+')
-  })
-
   it('组头合计 = Σ市值；无持仓的产品形态不产生组', () => {
     const groups = groupHeldPositions([
-      mkPosition('200001', '权益', 100, 100, '权益'),
-      mkPosition('200002', '权益', 250.5, 100, '权益'),
-      mkPosition('100001', '固守+', 500, 100, '固收+')
+      mkPosition('200001', '权益', 100, 100),
+      mkPosition('200002', '权益', 250.5, 100),
+      mkPosition('100001', '固收+', 500, 100)
     ])
     expect(groups.map((g) => g.name)).toEqual(['固收+', '权益'])
     expect(groups[0].marketValue).toBeCloseTo(500, 9)
@@ -465,54 +308,43 @@ describe('持仓明细按产品形态分组', () => {
 
   it('已清仓（份额为 0）被过滤；过滤后为空的产品形态不产生组', () => {
     const groups = groupHeldPositions([
-      mkPosition('200001', '权益', 100, 100, '权益'),
-      mkPosition('400001', '黄金', 0, 0, '黄金') // 已清仓：黄金组过滤后为空，不应出现
+      mkPosition('200001', '权益', 100, 100),
+      mkPosition('400001', '黄金', 0, 0) // 已清仓：黄金组过滤后为空，不应出现
     ])
     expect(groups.map((g) => g.name)).toEqual(['权益'])
   })
 
-  it('产品形态缺失（既有数据无法识别）的持仓归入「其他」并置底', () => {
-    const groups = groupHeldPositions([
-      mkPosition('900002', '股票', 10),
-      mkPosition('900001', '', 20),
-      mkPosition('100001', '固守+', 500, 100, '固收+')
-    ])
-    expect(groups.map((g) => g.name)).toEqual(['固收+', OTHER_GROUP])
-    expect(groups[1].marketValue).toBeCloseTo(30, 9)
-    expect(groups[1].positions.map((p) => p.fundCode)).toEqual(['900001', '900002'])
-  })
-
   it('市值有无与大小都不影响组内次序（代码是主键、不并列，无需 tie-break）', () => {
     const groups = groupHeldPositions([
-      mkPosition('200003', '权益', null, 100, '权益'),
-      mkPosition('200001', '权益', 999, 100, '权益'),
-      mkPosition('200002', '权益', 1, 100, '权益')
+      mkPosition('200003', '权益', null, 100),
+      mkPosition('200001', '权益', 999, 100),
+      mkPosition('200002', '权益', 1, 100)
     ])
     expect(groups[0].positions.map((p) => p.fundCode)).toEqual(['200001', '200002', '200003'])
   })
 
   it('组内全部无净值时组头合计为空值', () => {
     const groups = groupHeldPositions([
-      mkPosition('200001', '权益', null, 100, '权益'),
-      mkPosition('200002', '权益', null, 100, '权益')
+      mkPosition('200001', '权益', null, 100),
+      mkPosition('200002', '权益', null, 100)
     ])
     expect(groups[0].marketValue).toBeNull()
   })
 
   it('负份额（超卖数据错误）也不留在在持组里', () => {
     const groups = groupHeldPositions([
-      mkPosition('200001', '权益', 100, 100, '权益'),
-      mkPosition('400002', '黄金', -1200, -100, '黄金') // 超卖：份额为负，市值随之为负
+      mkPosition('200001', '权益', 100, 100),
+      mkPosition('400002', '黄金', -1200, -100) // 超卖：份额为负，市值随之为负
     ])
     expect(groups.map((g) => g.name)).toEqual(['权益'])
   })
 
   it('各组头合计之和 == 总资产（含已清仓持仓时为同一口径）', () => {
     const positions = [
-      mkPosition('100001', '固守+', 500, 100, '固收+'),
-      mkPosition('200001', '权益', 100, 100, '权益'),
-      mkPosition('200002', '权益', null, 100, '权益'),
-      mkPosition('400001', '黄金', 0, 0, '黄金') // 已清仓：对两个口径都贡献 0
+      mkPosition('100001', '固收+', 500, 100),
+      mkPosition('200001', '权益', 100, 100),
+      mkPosition('200002', '权益', null, 100),
+      mkPosition('400001', '黄金', 0, 0) // 已清仓：对两个口径都贡献 0
     ]
     const groups = groupHeldPositions(positions)
     const sum = groups.reduce((s, g) => s + (g.marketValue ?? 0), 0)
@@ -524,14 +356,14 @@ describe('已清仓分组（持仓明细表尾单独一组）', () => {
   it('无已清仓持仓时为空；从未建仓（无流水、份额 0）不算已清仓', () => {
     expect(groupClosedPositions([mkPosition('200001', '权益', 100)])).toBeNull()
     expect(groupClosedPositions([])).toBeNull()
-    expect(groupClosedPositions([mkPosition('000385', '固守+', 0, 0)])).toBeNull()
+    expect(groupClosedPositions([mkPosition('000385', '固收+', 0, 0)])).toBeNull()
   })
 
   it('交易过且份额 ≤ 0 的持仓收进一组：组名「已清仓」，组内按代码升序，组头无市值口径', () => {
     const group = groupClosedPositions([
       { ...mkPosition('400002', '黄金', 0, 0), invested: 59050, redeemed: 48691.8 }, // 清仓
       mkPosition('200001', '权益', 100), // 在持，不进来
-      { ...mkPosition('400001', '固守+', -50, -10), invested: 1000, redeemed: 1100 } // 超卖（负份额）也算已清仓
+      { ...mkPosition('400001', '固收+', -50, -10), invested: 1000, redeemed: 1100 } // 超卖（负份额）也算已清仓
     ])
     expect(group).not.toBeNull()
     expect(group!.name).toBe(CLOSED_GROUP)
@@ -544,10 +376,10 @@ describe('已清仓分组（持仓明细表尾单独一组）', () => {
   it('与在持分组互补：并集 = 有过流水的持仓，交集为空', () => {
     const positions = [
       mkPosition('200001', '权益', 100),
-      mkPosition('100001', '固守+', 500),
+      mkPosition('100001', '固收+', 500),
       { ...mkPosition('400001', '黄金', 0, 0), invested: 20000, redeemed: 15000 },
       { ...mkPosition('400002', '黄金', -1200, -100), invested: 5000, redeemed: 6200 },
-      mkPosition('000385', '固守+', 0, 0) // 从未建仓：哪边都不在
+      mkPosition('000385', '固收+', 0, 0) // 从未建仓：哪边都不在
     ]
     const held = groupHeldPositions(positions).flatMap((g) => g.positions)
     const closed = groupClosedPositions(positions)!.positions
@@ -559,12 +391,8 @@ describe('已清仓分组（持仓明细表尾单独一组）', () => {
 
 describe('持仓明细组级指标（组级盈亏比例 / 组级年化收益率）', () => {
   const TODAY = '2027-01-01'
-  const fundOf = (code: string, category: string): Fund => ({
-    code,
-    name: `基金${code}`,
-    category,
-    fundType: null
-  })
+  const fundOf = (code: string, productForm: ProductForm): Fund =>
+    mkFund(code, `基金${code}`, productForm)
   const tx = (
     date: string,
     type: Transaction['type'],
@@ -662,17 +490,6 @@ describe('持仓明细组级指标（组级盈亏比例 / 组级年化收益率�
     expect(group.pnlRatio).toBeCloseTo(0.2, 9) // 仅 A：200 / 1000
   })
 
-  it('「其他」兜底组同规则：脏值产品形态也按同一公式算出组级指标', () => {
-    const [group] = groupsOf(
-      [fundOf('A', '股票'), fundOf('B', '')],
-      [tx('2025-01-01', '买入', 'A', 1000, 1000), tx('2025-01-01', '买入', 'B', 1000, 1000)],
-      [nav('A', TODAY, 1.2), nav('B', TODAY, 0.9)]
-    )
-    expect(group.name).toBe(OTHER_GROUP)
-    expect(group.pnlRatio).toBeCloseTo(100 / 2000, 9) // 320 − 100 的加权合计
-    expect(group.annualized).toBeCloseTo(Math.sqrt(1.05) - 1, 9) // −2000 → 2100，730 天 → √1.05 − 1
-  })
-
   it('组级年化收益率的现金流只取组内基金：不同组互不串流', () => {
     // 权益 A：1000 → 1210（年化 +10%）；黄金 B：1000 → 810（年化 −10%）；均为 730 天
     const groups = groupsOf(
@@ -739,8 +556,8 @@ describe('持仓明细组级指标（组级盈亏比例 / 组级年化收益率�
 
 describe('总市值时间序列与周收益', () => {
   const funds: Fund[] = [
-    { code: 'A', name: '基金A', category: '权益', fundType: null },
-    { code: 'B', name: '基金B', category: '权益', fundType: null }
+    mkFund('A', '基金A', '权益'),
+    mkFund('B', '基金B', '权益')
   ]
   const transactions: Transaction[] = [
     { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
@@ -781,8 +598,8 @@ describe('总市值时间序列与周收益', () => {
 
 describe('收益统计时间序列（含卖出与分红现金，期望值手算）', () => {
   const funds: Fund[] = [
-    { code: 'A', name: '基金A', category: '权益', fundType: null },
-    { code: 'B', name: '基金B', category: '权益', fundType: null }
+    mkFund('A', '基金A', '权益'),
+    mkFund('B', '基金B', '权益')
   ]
   const transactions: Transaction[] = [
     { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
@@ -864,7 +681,7 @@ describe('收益统计时间序列（含卖出与分红现金，期望值手算�
 })
 
 describe('单基金收益走势（computeFundSeries，手算黄金值）', () => {
-  const fund: Fund = { code: 'A', name: '基金A', category: '权益', fundType: null }
+  const fund = mkFund('A', '基金A', '权益')
   const nav = (date: string, value: number): NavPoint => ({ fundCode: 'A', date, nav: value, source: 'import' })
 
   it('单笔买入 + 两日净值上涨：收益率 =（市值 − 成本）/ 成本', () => {
@@ -1037,12 +854,8 @@ describe('收益走势范围过滤（filterFundSeriesRange，边界手算）', (
 })
 
 describe('严格成本法 — 移动加权平均', () => {
-  const fund = (code: string, category = '权益'): Fund => ({
-    code,
-    name: `基金${code}`,
-    category,
-    fundType: null
-  })
+  const fund = (code: string, productForm: ProductForm = '权益'): Fund =>
+    mkFund(code, `基金${code}`, productForm)
 
   it('多次买入均价 + 部分卖出获利', () => {
     const txs: Transaction[] = [
@@ -1168,7 +981,7 @@ describe('严格成本法 — 移动加权平均', () => {
   })
 
   it('货基资金池全流程：已实现盈亏一次锁定，资金池中转不冲减，货基一视同仁', () => {
-    const funds = [fund('A'), fund('007824', '流动性'), fund('B')]
+    const funds = [fund('A'), fund('007824', '纯债'), fund('B')]
     const txs: Transaction[] = [
       { date: '2026-01-01', type: '买入', fundCode: 'A', amount: 100, shares: 100, nav: 1, fee: 0, note: null },
       // 再平衡：卖超配 40 份（回款 60，已实现 60 − 40 = 20）
@@ -1624,7 +1437,7 @@ describe('按笔已实现收益（realizedPerSale / realizedForSale，手算黄�
 })
 
 describe('口径化汇总（computeScopedSummary）', () => {
-  const fundOf = (code: string): Fund => ({ code, name: `基金${code}`, category: '权益', fundType: null })
+  const fundOf = (code: string): Fund => mkFund(code, `基金${code}`, '权益')
   const tx = (
     date: string,
     type: Transaction['type'],

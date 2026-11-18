@@ -109,12 +109,11 @@ describe('isValidDateString', () => {
 })
 
 describe('normalizeFundInput — 新建基金（按产品形态）', () => {
-  it('代码补前导零；账本大类、兼容列与默认系数由产品形态派生', () => {
+  it('代码补前导零；账本大类与默认系数由产品形态派生', () => {
     const f = normalizeFundInput({ code: '2065', name: '测试基金', productForm: '固收+', fundType: '二级债基' })
     expect(f).toEqual({
       code: '002065',
       name: '测试基金',
-      category: '固守+', // 兼容列写回旧拼写
       fundType: '二级债基',
       ledgerCategory: '债',
       productForm: '固收+',
@@ -134,15 +133,15 @@ describe('normalizeFundInput — 新建基金（按产品形态）', () => {
   })
 
   it('四种产品形态的标准派生值', () => {
-    const expected: [ProductForm, string, LedgerCategory, number][] = [
-      ['固收+', '固守+', '债', 0.2],
-      ['纯债', '纯债', '债', 0],
-      ['权益', '权益', '权益', 1],
-      ['黄金', '黄金', '黄金', 0]
+    const expected: [ProductForm, LedgerCategory, number][] = [
+      ['固收+', '债', 0.2],
+      ['纯债', '债', 0],
+      ['权益', '权益', 1],
+      ['黄金', '黄金', 0]
     ]
-    for (const [productForm, category, ledgerCategory, equityRatio] of expected) {
+    for (const [productForm, ledgerCategory, equityRatio] of expected) {
       const f = normalizeFundInput({ code: '000001', name: '测试基金', productForm, fundType: null })
-      expect(f).toMatchObject({ category, productForm, ledgerCategory, equityRatio })
+      expect(f).toMatchObject({ productForm, ledgerCategory, equityRatio })
     }
   })
 })
@@ -156,11 +155,10 @@ describe('normalizeFundUpdateInput — 基金配置更新', () => {
     equityRatio: 0.2
   }
 
-  it('归一化名称并带回兼容列写法', () => {
+  it('归一化名称', () => {
     expect(normalizeFundUpdateInput({ ...base, name: '  改名后  ' })).toEqual({
       ...base,
-      name: '改名后',
-      category: '固守+'
+      name: '改名后'
     })
   })
 

@@ -5,7 +5,6 @@ import { app } from 'electron'
 import { SCHEMA, SCHEMA_VERSION } from './schema'
 import { migrateDatabase } from './schemaMigration'
 import { loadSettings } from './settingsStore'
-import { seedDefaultCategoryTargets } from './targetService'
 import { replaceDbFile } from './migrationService'
 
 let db: Database.Database
@@ -25,13 +24,12 @@ export function initDatabase(): void {
       try {
         migrateDatabase(db, version)
       } catch (e) {
-        // 迁移失败（如备份盘满、旧大类无法识别）：保留旧 schema，下次启动重试；写入需等迁移成功。
+        // 迁移失败（如备份盘满、历史类别无法识别）：保留旧 schema，下次启动重试；写入需等迁移成功。
         console.error('数据库迁移失败，本次保持旧版本：', e)
         return
       }
     }
-    db.exec(SCHEMA)
-    seedDefaultCategoryTargets(db) // 新库种子默认大类目标
+    db.exec(SCHEMA) // 新库：最终三层模型，目标表为空（视为未配置）
     db.pragma(`user_version = ${SCHEMA_VERSION}`)
   }
 }

@@ -85,7 +85,7 @@ export function buildExportData(db: Database.Database): ExportSheet[] {
 
   const positions = computePositions(funds, transactions, navPoints)
   const totals = computeTotals(positions, transactions)
-  const comparison = computeAllocationComparison(positions, funds, loadBucketTargets(db).targets)
+  const comparison = computeAllocationComparison(positions, funds, loadBucketTargets(db))
 
   return [
     overviewSheet(positions, funds, totals, comparison),

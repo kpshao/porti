@@ -1,20 +1,16 @@
 // 领域校验与归一化规则：流水录入、新建基金、基金配置更新（主进程服务与界面共用同一份规则）
 
 import {
-  COMPAT_CATEGORY_BY_PRODUCT_FORM,
   DEFAULT_EQUITY_RATIO,
   LEDGER_CATEGORIES,
   LEDGER_CATEGORY_BY_PRODUCT_FORM,
   PRODUCT_FORMS
 } from './classification'
 import type { LedgerCategory, ProductForm } from './classification'
-import type { ClassifiedFund, OperationType, Transaction } from './types'
+import type { Fund, OperationType, Transaction } from './types'
 
 /** 四种操作类型（spec 领域词汇的封闭集合） */
 export const OPERATION_TYPES: OperationType[] = ['买入', '卖出', '分红现金', '分红再投入']
-
-/** 旧五类兼容值（过渡字段，见 classification.ts）；收缩票删除 */
-export const CATEGORIES = ['固守+', '纯债', '权益', '黄金', '流动性'] as const
 
 /** 流水录入输入（界面/服务入参；金额、份额、手续费可为空） */
 export interface TransactionInput {
@@ -45,11 +41,10 @@ export interface FundUpdateInput {
   equityRatio: number // 0–1（界面按百分比录入）
 }
 
-/** 归一化后的基金配置更新（category 为旧五类兼容列写法，见 classification.ts） */
+/** 归一化后的基金配置更新 */
 export interface NormalizedFundUpdate {
   code: string
   name: string
-  category: string
   productForm: ProductForm
   ledgerCategory: LedgerCategory
   equityRatio: number
@@ -140,7 +135,7 @@ function normalizeFundIdentity(
 }
 
 /** 校验并归一化新建基金输入（代码补零）。账本大类与默认权益系数由产品形态派生。 */
-export function normalizeFundInput(input: FundInput): ClassifiedFund {
+export function normalizeFundInput(input: FundInput): Fund {
   const errors: string[] = []
   const { code, name } = normalizeFundIdentity(input, errors)
   if (!(PRODUCT_FORMS as readonly string[]).includes(input.productForm)) {
@@ -152,7 +147,6 @@ export function normalizeFundInput(input: FundInput): ClassifiedFund {
   return {
     code,
     name,
-    category: COMPAT_CATEGORY_BY_PRODUCT_FORM[productForm],
     fundType: input.fundType === null || input.fundType.trim() === '' ? null : input.fundType.trim(),
     ledgerCategory: LEDGER_CATEGORY_BY_PRODUCT_FORM[productForm],
     productForm,
@@ -189,7 +183,6 @@ export function normalizeFundUpdateInput(input: FundUpdateInput): NormalizedFund
   return {
     code,
     name,
-    category: COMPAT_CATEGORY_BY_PRODUCT_FORM[input.productForm],
     productForm: input.productForm,
     ledgerCategory: input.ledgerCategory,
     equityRatio: input.equityRatio

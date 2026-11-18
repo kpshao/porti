@@ -3,14 +3,8 @@ import Database from 'better-sqlite3'
 import { computeAllocationComparison, computePositions } from '../engine'
 import type { AllocationBucket } from '../engine'
 import { SCHEMA } from './schema'
-import {
-  selectBucketTargets,
-  selectCategoryTargets,
-  selectFunds,
-  selectNavPoints,
-  selectTransactions
-} from './repo'
-import { loadBucketTargets, saveBucketTargets, seedDefaultCategoryTargets } from './targetService'
+import { selectBucketTargets, selectFunds, selectNavPoints, selectTransactions } from './repo'
+import { loadBucketTargets, saveBucketTargets } from './targetService'
 import { createFund } from './transactionService'
 
 /** 测试辅助：从库内数据计算持仓（引擎输入） */
@@ -48,66 +42,23 @@ function targetsOf(
   ]
 }
 
-describe('seedDefaultCategoryTargets — 默认目标种子（ticket 默认值）', () => {
-  it('空库种子五个默认大类比例', () => {
-    const db = freshDb()
-    seedDefaultCategoryTargets(db)
-    // 顺序不属于本函数的契约（消费方负责排序），此处只校验集合
-    expect(Object.fromEntries(selectCategoryTargets(db).map((t) => [t.category, t.targetRatio]))).toEqual({
-      '固守+': 0.25,
-      纯债: 0.45,
-      权益: 0.2,
-      黄金: 0.05,
-      流动性: 0.05
-    })
+describe('loadBucketTargets — 配置桶目标读取', () => {
+  it('尚未保存：按固定三桶返回全 0（未配置状态）', () => {
+    expect(loadBucketTargets(freshDb())).toEqual(targetsOf([0, 0, 0]))
   })
 
-  it('已有旧目标（Excel 导入值）不覆盖，仅补齐缺失大类', () => {
+  it('已保存的三桶目标（含全 0）按固定顺序返回', () => {
     const db = freshDb()
-    db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run('纯债', 0.4)
-    seedDefaultCategoryTargets(db)
-    expect(selectCategoryTargets(db).find((t) => t.category === '纯债')?.targetRatio).toBe(0.4)
-    expect(selectCategoryTargets(db).find((t) => t.category === '权益')?.targetRatio).toBe(0.2)
-  })
-})
+    saveBucketTargets(db, targetsOf([0.5, 0.3, 0.2]))
+    expect(loadBucketTargets(db)).toEqual(targetsOf([0.5, 0.3, 0.2]))
 
-describe('loadBucketTargets — 配置桶目标的读取与旧目标折算', () => {
-  it('旧目标存在、新目标表为空：返回折算结果并标记待确认，不写库', () => {
-    const db = freshDb()
-    seedDefaultCategoryTargets(db)
-
-    const loaded = loadBucketTargets(db)
-
-    expect(loaded.targetConversionPending).toBe(true)
-    const ratios = Object.fromEntries(loaded.targets.map((t) => [t.bucket, t.targetRatio]))
-    expect(ratios['稳健']).toBeCloseTo(65 / 95, 9)
-    expect(ratios['权益']).toBeCloseTo(25 / 95, 9)
-    expect(ratios['黄金']).toBeCloseTo(5 / 95, 9)
-    // 首次确认前不落库：用户看到的是折算候选值
-    expect(selectBucketTargets(db)).toEqual([])
-  })
-
-  it('没有旧目标：返回全 0 且不提示折算（未配置状态）', () => {
-    const loaded = loadBucketTargets(freshDb())
-
-    expect(loaded.targetConversionPending).toBe(false)
-    expect(loaded.targets).toEqual(targetsOf([0, 0, 0]))
-  })
-
-  it('已保存的三桶目标（含全 0）优先于旧目标，且不再提示折算', () => {
-    const db = freshDb()
-    seedDefaultCategoryTargets(db)
     saveBucketTargets(db, targetsOf([0, 0, 0]))
-
-    const loaded = loadBucketTargets(db)
-
-    expect(loaded.targetConversionPending).toBe(false)
-    expect(loaded.targets).toEqual(targetsOf([0, 0, 0]))
+    expect(loadBucketTargets(db)).toEqual(targetsOf([0, 0, 0]))
   })
 })
 
 describe('saveBucketTargets — 配置桶目标逐行保存', () => {
-  it('保存后按固定三桶回读，覆盖已有的旧值', () => {
+  it('保存后按固定三桶回读，覆盖已有的值', () => {
     const db = freshDb()
     saveBucketTargets(db, targetsOf([0.5, 0.3, 0.2]))
     expect(selectBucketTargets(db)).toEqual(targetsOf([0.5, 0.3, 0.2]))
@@ -148,7 +99,7 @@ describe('saveBucketTargets — 配置桶目标逐行保存', () => {
     const before = computeAllocationComparison(
       computePositionsOf(db),
       selectFunds(db),
-      loadBucketTargets(db).targets
+      loadBucketTargets(db)
     )
     expect(before.rows.find((r) => r.bucket === '权益')?.targetRatio).toBeCloseTo(0.3)
     expect(before.rows.find((r) => r.bucket === '权益')?.deviation).toBeCloseTo(0.7, 9)
@@ -158,7 +109,7 @@ describe('saveBucketTargets — 配置桶目标逐行保存', () => {
     const after = computeAllocationComparison(
       computePositionsOf(db),
       selectFunds(db),
-      loadBucketTargets(db).targets
+      loadBucketTargets(db)
     )
     expect(after.targetNormalized).toBe(true)
     expect(after.rows.find((r) => r.bucket === '权益')?.deviation).toBeCloseTo(1 - 0.3 / 0.7, 9)

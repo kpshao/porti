@@ -8,7 +8,6 @@ import Database from 'better-sqlite3'
 import { SCHEMA } from '../main/schema'
 import {
   selectBucketTargets,
-  selectCategoryTargets,
   selectFunds,
   selectNavPoints,
   selectTransactions
@@ -68,23 +67,23 @@ describe('M1 端到端对账 — 真实 Excel → 导入 → 计算 → 逐项�
     for (const p of selectNavPoints(db)) expect(p.source).toBe('import')
   })
 
-  it('导入同时写入新模型字段：旧五类映射到账本大类与产品形态', () => {
+  it('导入同时写入新模型字段：旧 Excel 标签映射到账本大类与产品形态', () => {
     const byCode = new Map(funds.map((f) => [f.code, f]))
     expect(byCode.get('519680')).toMatchObject({
-      category: '纯债', ledgerCategory: '债', productForm: '纯债', equityRatio: 0
+      ledgerCategory: '债', productForm: '纯债', equityRatio: 0
     })
-    // 旧「流动性」归入 债 / 纯债
+    // 旧「流动性」别名归入 债 / 纯债
     expect(byCode.get('007824')).toMatchObject({
-      category: '纯债', ledgerCategory: '债', productForm: '纯债', equityRatio: 0
+      ledgerCategory: '债', productForm: '纯债', equityRatio: 0
     })
     expect(byCode.get('110017')).toMatchObject({
-      category: '固守+', ledgerCategory: '债', productForm: '固收+', equityRatio: 0.2
+      ledgerCategory: '债', productForm: '固收+', equityRatio: 0.2
     })
     expect(byCode.get('563360')).toMatchObject({
-      category: '权益', ledgerCategory: '权益', productForm: '权益', equityRatio: 1
+      ledgerCategory: '权益', productForm: '权益', equityRatio: 1
     })
     expect(byCode.get('000217')).toMatchObject({
-      category: '黄金', ledgerCategory: '黄金', productForm: '黄金', equityRatio: 0
+      ledgerCategory: '黄金', productForm: '黄金', equityRatio: 0
     })
     for (const f of funds) {
       expect(f.equityRatioSource).toBe('manual')
@@ -209,11 +208,11 @@ function workbookWithCategory(label: string, fundType = '二级债基'): XLSX.Wo
   return wb
 }
 
-describe('旧五类与新标签端到端', () => {
+describe('旧 Excel 标签别名与新标签端到端', () => {
   it.each([
     ['固守+', '固收+'],
     ['固收+', '固收+'],
-    // 旧「流动性」归入 债 / 纯债
+    // 旧「流动性」别名归入 债 / 纯债
     ['流动性', '纯债']
   ])('「%s」导入为 债 / %s', (label, productForm) => {
     const parsed = parseWorkbook(workbookWithCategory(label))
@@ -229,8 +228,7 @@ describe('旧五类与新标签端到端', () => {
     })
     expect(selectFunds(db)[0]).toMatchObject({
       ledgerCategory: '债',
-      productForm,
-      category: productForm === '固收+' ? '固守+' : '纯债'
+      productForm
     })
     db.close()
   })
@@ -243,7 +241,7 @@ describe('未知标签端到端', () => {
     expect(parsed.warnings[0].kind).toBe('unknown-category')
     expect(parsed.warnings[0].detail).toContain('股票型')
     expect(parsed.warnings[0].detail).toContain('000010')
-    expect(parsed.funds[0].productForm).toBeUndefined()
+    expect(parsed.funds[0].productForm).toBeNull()
 
     const db = freshDb()
     expect(() =>
@@ -261,10 +259,8 @@ describe('未知标签端到端', () => {
 })
 
 describe('导入忽略目标列', () => {
-  it('导入前后大类目标与配置桶目标保持不变', () => {
+  it('导入前后配置桶目标保持不变', () => {
     const db = freshDb()
-    db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run('权益', 0.3)
-    db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run('纯债', 0.7)
     for (const [bucket, ratio] of [
       ['稳健', 0.6],
       ['权益', 0.3],
@@ -276,13 +272,6 @@ describe('导入忽略目标列', () => {
     const counts = importToDb(db, buildPlan())
 
     expect(counts.funds).toBe(10)
-    expect(selectCategoryTargets(db)).toEqual(
-      expect.arrayContaining([
-        { category: '纯债', targetRatio: 0.7 },
-        { category: '权益', targetRatio: 0.3 }
-      ])
-    )
-    expect(selectCategoryTargets(db)).toHaveLength(2)
     expect(
       selectBucketTargets(db).sort(
         (a, b) => ALLOCATION_BUCKETS.indexOf(a.bucket) - ALLOCATION_BUCKETS.indexOf(b.bucket)
