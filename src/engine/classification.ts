@@ -14,6 +14,12 @@ export type ProductForm = (typeof PRODUCT_FORMS)[number]
 export const EQUITY_RATIO_SOURCES = ['manual', 'fetch'] as const
 export type EquityRatioSource = (typeof EQUITY_RATIO_SOURCES)[number]
 
+/** 系数来源中文标签（展示用） */
+export const EQUITY_RATIO_SOURCE_LABEL: Record<EquityRatioSource, string> = {
+  manual: '手工',
+  fetch: '抓取'
+}
+
 /** 产品形态 → 账本大类（固定映射）。写入路径从产品形态派生账本大类，保证两者一致。 */
 export const LEDGER_CATEGORY_BY_PRODUCT_FORM: Record<ProductForm, LedgerCategory> = {
   '固收+': '债',

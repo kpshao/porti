@@ -6,6 +6,7 @@ import Database from 'better-sqlite3'
 import * as XLSX from 'xlsx'
 import { SCHEMA } from './schema'
 import { resolveLegacyCategory } from '../engine'
+import type { FundClassification } from '../engine'
 import { buildCsvContent, buildExportData, writeExportCsvs, writeExportExcel } from './exportService'
 import { insertFund } from './repo'
 import type { ExportSheet } from './exportService'
@@ -21,15 +22,32 @@ function num(v: number, z: string): { v: number; z: string } {
   return { v, z }
 }
 
-function seedFund(db: Database.Database, code: string, name: string, category: string): void {
-  const { classification } = resolveLegacyCategory(category)!
-  insertFund(db, { code, name, category, fundType: null, ...classification }, '2026-01-01')
+function seedFund(
+  db: Database.Database,
+  code: string,
+  name: string,
+  label: string,
+  overrides: Partial<FundClassification> = {}
+): void {
+  const { classification, compatCategory } = resolveLegacyCategory(label)!
+  insertFund(
+    db,
+    { code, name, category: compatCategory, fundType: null, ...classification, ...overrides },
+    '2026-01-01'
+  )
 }
 
 function insertTx(db: Database.Database, date: string, type: string, code: string, amount: number, shares: number | null, nav: number | null, fee: number | null, note: string | null): void {
   db.prepare('INSERT INTO transactions (date, type, fund_code, amount, shares, nav, fee, note, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
     date, type, code, amount, shares, nav, fee, note, '2026-01-01', '2026-01-01'
   )
+}
+
+function seedBucketTargets(db: Database.Database, steady: number, equity: number, gold = 0): void {
+  const insert = db.prepare('INSERT INTO bucket_targets (bucket, target_ratio) VALUES (?,?)')
+  insert.run('稳健', steady)
+  insert.run('权益', equity)
+  insert.run('黄金', gold)
 }
 
 /** 种子库：两只基金（权益 + 固守+）、五笔流水（含卖出为 0 的边界外场景）、四条净值历史。
@@ -40,9 +58,13 @@ function insertTx(db: Database.Database, date: string, type: string, code: strin
  */
 function seedDb(db: Database.Database): Database.Database {
   seedFund(db, '000001', '测试权益', '权益')
-  seedFund(db, '002065', '固收增强', '固守+')
-  db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run('固守+', 0.25)
-  db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run('权益', 0.20)
+  seedFund(db, '002065', '固收增强', '固守+', {
+    equityRatio: 0.35,
+    equityRatioSource: 'fetch',
+    equityRatioAsOf: '2026-06-30'
+  })
+  // 三桶目标合计 80% → 导出需标注「偏离按归一化目标计算」
+  seedBucketTargets(db, 0.5, 0.3)
   insertTx(db, '2026-01-15', '买入', '000001', 1000, 100, 10, 2, null)
   insertTx(db, '2026-02-01', '买入', '000001', 2400, 200, 12, null, null)
   insertTx(db, '2026-03-01', '分红现金', '000001', 60, null, null, null, '落袋')
@@ -108,21 +130,26 @@ describe('buildExportData — 概览表', () => {
     expect(summary[5]).toEqual(['净投入成本', num(23400, '0.00')])
   })
 
-  it('持仓明细与手算一致：金额 2 位、净值 4 位、盈亏比例为百分比数字', () => {
+  it('持仓明细含产品形态/账本大类/权益系数/来源/数据日期，金额 2 位、净值 4 位、盈亏比例为百分比数字', () => {
     const sheets = buildExportData(seedDb(freshDb()))
     const ov = sheetByName(sheets, '概览')
 
     expect(ov.rows[8]).toEqual(['持仓明细'])
     expect(ov.rows[9]).toEqual([
-      '基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)'
+      '基金代码', '基金名称', '产品形态', '账本大类', '权益系数(%)', '系数来源', '系数数据日期',
+      '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)'
     ])
 
     const [a, b] = ov.rows.slice(10, 12)
+    // 权益类：默认系数 100%、手工来源、无数据日期
     expect(a).toEqual([
-      '000001', '测试权益', '权益', num(300, '0.00'), num(3400, '0.00'), num(12.5, '0.0000'), num(3750, '0.00'), num(350, '0.00'), num(10.29, '0.00')
+      '000001', '测试权益', '权益', '权益', num(100, '0.00'), '手工', '',
+      num(300, '0.00'), num(3400, '0.00'), num(12.5, '0.0000'), num(3750, '0.00'), num(350, '0.00'), num(10.29, '0.00')
     ])
+    // 固收+：逐只覆盖为 35%、抓取来源、带报告期
     expect(b).toEqual([
-      '002065', '固收增强', '固守+', num(18500, '0.00'), num(20000, '0.00'), num(1.2346, '0.0000'), num(22839.49, '0.00'), num(2839.49, '0.00'), num(14.2, '0.00')
+      '002065', '固收增强', '固收+', '债', num(35, '0.00'), '抓取', '2026-06-30',
+      num(18500, '0.00'), num(20000, '0.00'), num(1.2346, '0.0000'), num(22839.49, '0.00'), num(2839.49, '0.00'), num(14.2, '0.00')
     ])
   })
 
@@ -144,15 +171,77 @@ describe('buildExportData — 概览表', () => {
     expect(ov.rows[12]).toEqual([]) // 明细段后紧跟空行 → 清仓与超卖都没混进来
   })
 
-  it('大类配置对比：目标/投入/市值/偏离均为百分比数字（手算基准）', () => {
+  it('导出全部工作表都不再出现旧五类标签', () => {
+    const db = seedDb(freshDb())
+    // 旧「流动性」基金：迁移后是 债/纯债，且是在持持仓，确保它真的出现在导出表里
+    seedFund(db, '000009', '测试货基', '流动性')
+    insertTx(db, '2026-07-01', '买入', '000009', 1000, 1000, 1, null, null)
+    db.prepare('INSERT INTO nav_history (fund_code, date, nav, source) VALUES (?,?,?,?)').run('000009', '2026-07-01', 1, 'manual')
+
+    const sheets = buildExportData(db)
+    const ov = sheetByName(sheets, '概览')
+    const texts = sheets.flatMap((s) => s.rows.flat()).filter((c): c is string => typeof c === 'string')
+
+    expect(ov.rows.find((r) => r[0] === '000009')?.slice(0, 4)).toEqual(['000009', '测试货基', '纯债', '债'])
+    expect(texts).not.toContain('固守+')
+    expect(texts).not.toContain('流动性')
+    expect(texts).not.toContain('大类') // 旧「大类」列已由产品形态 + 账本大类取代
+    expect(texts).toContain('固收+') // 新标签正常导出（产品形态列）
+  })
+
+  it('目标合计恰为 100% 时说明标注「无需归一化」', () => {
+    const db = seedDb(freshDb())
+    db.prepare('DELETE FROM bucket_targets').run()
+    seedBucketTargets(db, 0.6, 0.4)
+
+    const ov = sheetByName(buildExportData(db), '概览')
+    const start = ov.rows.findIndex((r) => r[0] === '配置对比')
+    expect(ov.rows[start + 5]).toEqual([
+      '说明', '目标合计 100.00%，无需归一化；偏离按原始目标计算。'
+    ])
+  })
+
+  it('目标表未初始化时，导出与界面一致展示旧目标折算后的三桶（先剔除流动性再归一化）', () => {
+    const db = seedDb(freshDb())
+    db.prepare('DELETE FROM bucket_targets').run()
+    const legacyTargets: [string, number][] = [
+      ['固守+', 0.25], ['纯债', 0.45], ['权益', 0.2], ['黄金', 0.05], ['流动性', 0.05]
+    ]
+    for (const [category, ratio] of legacyTargets) {
+      db.prepare('INSERT INTO category_targets (category, target_ratio) VALUES (?,?)').run(category, ratio)
+    }
+
+    const ov = sheetByName(buildExportData(db), '概览')
+    const start = ov.rows.findIndex((r) => r[0] === '配置对比')
+    // 剔除流动性后按 0.95 归一化，再按固收+ 默认 20% 权益系数拆桶
+    expect(ov.rows.slice(start + 2, start + 5)).toEqual([
+      ['稳健', num(68.42, '0.00'), num(55.56, '0.00'), num(55.83, '0.00'), num(-12.59, '0.00')],
+      ['权益', num(26.32, '0.00'), num(44.44, '0.00'), num(44.17, '0.00'), num(17.85, '0.00')],
+      ['黄金', num(5.26, '0.00'), num(0, '0.00'), num(0, '0.00'), num(-5.26, '0.00')]
+    ])
+    expect(ov.rows[start + 5]).toEqual([
+      '说明', '目标合计 100.00%，无需归一化；偏离按原始目标计算。'
+    ])
+  })
+
+  it('配置对比导出稳健/权益/黄金三桶：目标/投入/市值/偏离均为百分比数字，偏离按归一化目标（手算基准）', () => {
     const sheets = buildExportData(seedDb(freshDb()))
     const ov = sheetByName(sheets, '概览')
+    const start = ov.rows.findIndex((r) => r[0] === '配置对比')
+    expect(start).toBeGreaterThan(-1)
 
-    expect(ov.rows[13]).toEqual(['大类配置对比'])
-    expect(ov.rows[14]).toEqual(['大类', '目标比例(%)', '实际投入比例(%)', '实际市值占比(%)', '偏离(%)'])
-
-    expect(ov.rows[15]).toEqual(['固守+', num(25, '0.00'), num(85.47, '0.00'), num(85.9, '0.00'), num(60.9, '0.00')])
-    expect(ov.rows[16]).toEqual(['权益', num(20, '0.00'), num(14.53, '0.00'), num(14.1, '0.00'), num(-5.9, '0.00')])
+    expect(ov.rows[start + 1]).toEqual([
+      '配置桶', '目标比例(%)', '实际投入比例(%)', '实际市值占比(%)', '偏离(%)'
+    ])
+    // 002065 按 35% 权益系数拆分：稳健 = 65% × 市值/净投入
+    expect(ov.rows.slice(start + 2, start + 5)).toEqual([
+      ['稳健', num(50, '0.00'), num(55.56, '0.00'), num(55.83, '0.00'), num(-6.67, '0.00')],
+      ['权益', num(30, '0.00'), num(44.44, '0.00'), num(44.17, '0.00'), num(6.67, '0.00')],
+      ['黄金', num(0, '0.00'), num(0, '0.00'), num(0, '0.00'), num(0, '0.00')]
+    ])
+    expect(ov.rows[start + 5]).toEqual([
+      '说明', '目标合计 80.00%，不等于 100%；偏离按归一化目标计算。'
+    ])
   })
 })
 
@@ -165,8 +254,17 @@ describe('buildExportData — 空库', () => {
     expect(ov.rows[1]).toEqual(['总资产', num(0, '0.00')])
     expect(ov.rows[3]).toEqual(['总收益率(%)', ''])
     expect(ov.rows[9]).toEqual([
-      '基金代码', '基金名称', '大类', '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)'
+      '基金代码', '基金名称', '产品形态', '账本大类', '权益系数(%)', '系数来源', '系数数据日期',
+      '份额', '持仓成本', '最新净值', '市值', '持仓盈亏', '盈亏比例(%)'
     ])
+    // 三桶行常驻；无目标时说明为「未配置」，偏离留空
+    const start = ov.rows.findIndex((r) => r[0] === '配置对比')
+    expect(ov.rows.slice(start + 2, start + 5)).toEqual([
+      ['稳健', num(0, '0.00'), '', '', ''],
+      ['权益', num(0, '0.00'), '', '', ''],
+      ['黄金', num(0, '0.00'), '', '', '']
+    ])
+    expect(ov.rows[start + 5]).toEqual(['说明', '目标合计为 0，视为未配置；偏离为空。'])
     expect(sheetByName(sheets, '流水').rows).toHaveLength(1)
     expect(sheetByName(sheets, '净值').rows).toHaveLength(1)
   })
@@ -189,8 +287,9 @@ describe('buildCsvContent — CSV 与软件内显示一致', () => {
     const ov = sheetByName(sheets, '概览')
     const ovLines = buildCsvContent(ov.rows).slice(1).split('\r\n')
     expect(ovLines[1]).toBe('总资产,26589.49')
-    const quanyi = ovLines[ovLines.length - 1] // 权益行：偏离 −5.896683…% → -5.90
-    expect(quanyi).toBe('权益,20.00,14.53,14.10,-5.90')
+    const quanyi = ovLines.find((line) => line.startsWith('权益,'))
+    expect(quanyi).toBe('权益,30.00,44.44,44.17,6.67') // 偏离按归一化目标（30/80）
+    expect(ovLines[ovLines.length - 1]).toBe('说明,目标合计 80.00%，不等于 100%；偏离按归一化目标计算。')
   })
 
   it('含逗号/引号的备注按 CSV 规范加引号转义', () => {
