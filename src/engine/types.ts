@@ -1,5 +1,7 @@
 // 计算引擎的领域类型——与 spec 数据模型保持一致
 
+import type { FundClassification } from './classification'
+
 export type OperationType = '买入' | '卖出' | '分红现金' | '分红再投入'
 export type NavSource = 'import' | 'auto' | 'manual'
 
@@ -13,9 +15,12 @@ export const NAV_SOURCE_LABEL: Record<NavSource, string> = {
 export interface Fund {
   code: string
   name: string
-  category: string // 资产大类：固守+/纯债/权益/黄金/流动性
+  category: string // 旧五类兼容值（过渡字段，见 classification.ts）
   fundType: string | null
 }
+
+/** 带新模型字段的基金（schema v4 起每只基金都有；读取层与创建路径返回该类型） */
+export type ClassifiedFund = Fund & FundClassification
 
 /** 交易流水。库内约定：卖出金额与份额均存负值；分红现金份额为空。 */
 export interface Transaction {

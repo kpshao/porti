@@ -1,7 +1,24 @@
 // SQLite 数据模型。独立成模块以便测试用 :memory: 数据库复用同一 schema。
 
+import {
+  EQUITY_RATIO_SOURCES,
+  LEDGER_CATEGORIES,
+  PRODUCT_FORMS
+} from '../engine/classification'
+
 /** 当前 schema 版本（PRAGMA user_version）；版本间迁移见 schemaMigration.ts */
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
+
+/** SQL IN 列表；新字段的值域唯一来源是 engine/classification.ts */
+const sqlIn = (values: readonly string[]): string => values.map((v) => `'${v}'`).join(',')
+
+/** 新模型字段的 CHECK 条件（新库建表与旧库 ALTER 共用，避免两处值域分叉） */
+export const FUND_MODEL_CHECKS = {
+  ledgerCategory: `ledger_category IN (${sqlIn(LEDGER_CATEGORIES)})`,
+  productForm: `product_form IN (${sqlIn(PRODUCT_FORMS)})`,
+  equityRatio: 'equity_ratio >= 0 AND equity_ratio <= 1',
+  equityRatioSource: `equity_ratio_source IN (${sqlIn(EQUITY_RATIO_SOURCES)})`
+} as const
 
 /**
  * v3 新增：单线程 AI 对话消息表。
@@ -24,11 +41,17 @@ export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS funds (
   code TEXT PRIMARY KEY,          -- 6 位基金代码，字符串存储防前导零丢失
   name TEXT NOT NULL,             -- 基金简称
-  category TEXT NOT NULL,         -- 资产大类：固守+/纯债/权益/黄金/流动性
+  category TEXT NOT NULL,         -- 旧五类兼容值：固守+/纯债/权益/黄金/流动性（过渡字段，见 classification.ts）
   fund_type TEXT,                 -- 基金类型：一级债基/二级债基/偏债混合/ETF/黄金/短债等
+  ledger_category TEXT NOT NULL CHECK (${FUND_MODEL_CHECKS.ledgerCategory}), -- 账本大类
+  product_form TEXT NOT NULL CHECK (${FUND_MODEL_CHECKS.productForm}), -- 产品形态
+  equity_ratio REAL NOT NULL CHECK (${FUND_MODEL_CHECKS.equityRatio}), -- 权益系数 0–1
+  equity_ratio_source TEXT NOT NULL CHECK (${FUND_MODEL_CHECKS.equityRatioSource}), -- 系数来源
+  equity_ratio_as_of TEXT,        -- 系数数据日期（报告期或空）
   created_at TEXT NOT NULL
 );
 
+-- 旧五类目标表（过渡字段，见 classification.ts）
 CREATE TABLE IF NOT EXISTS category_targets (
   category TEXT PRIMARY KEY,      -- 固守+ / 纯债 / 权益 / 黄金 / 流动性
   target_ratio REAL NOT NULL      -- 目标比例，如 0.25

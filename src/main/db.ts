@@ -25,7 +25,7 @@ export function initDatabase(): void {
       try {
         migrateDatabase(db, version)
       } catch (e) {
-        // 迁移失败（如备份盘满）：保留旧 schema，下次启动重试。代码不读被删列，旧库照常可用。
+        // 迁移失败（如备份盘满、旧大类无法识别）：保留旧 schema，下次启动重试；写入需等迁移成功。
         console.error('数据库迁移失败，本次保持旧版本：', e)
         return
       }

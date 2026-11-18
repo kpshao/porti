@@ -56,6 +56,29 @@ describe('M1 端到端对账 — 真实 Excel → 导入 → 计算 → 逐项�
     for (const p of selectNavPoints(db)) expect(p.source).toBe('import')
   })
 
+  it('导入同时写入新模型字段：旧五类映射到账本大类与产品形态', () => {
+    const byCategory = new Map(funds.map((f) => [f.category, f]))
+    expect(byCategory.get('纯债')).toMatchObject({
+      ledgerCategory: '债', productForm: '纯债', equityRatio: 0
+    })
+    expect(byCategory.get('固守+')).toMatchObject({
+      ledgerCategory: '债', productForm: '固收+', equityRatio: 0.2
+    })
+    expect(byCategory.get('权益')).toMatchObject({
+      ledgerCategory: '权益', productForm: '权益', equityRatio: 1
+    })
+    expect(byCategory.get('黄金')).toMatchObject({
+      ledgerCategory: '黄金', productForm: '黄金', equityRatio: 0
+    })
+    expect(byCategory.get('流动性')).toMatchObject({
+      ledgerCategory: '债', productForm: '纯债', equityRatio: 0
+    })
+    for (const f of funds) {
+      expect(f.equityRatioSource).toBe('manual')
+      expect(f.equityRatioAsOf).toBeNull()
+    }
+  })
+
   const funds = selectFunds(db)
   const transactions = selectTransactions(db)
   const navPoints = selectNavPoints(db)

@@ -1,11 +1,12 @@
 // 领域校验与归一化规则：流水录入、新建基金（主进程服务与界面共用同一份规则）
 
-import type { Fund, OperationType, Transaction } from './types'
+import { resolveLegacyCategory } from './classification'
+import type { ClassifiedFund, OperationType, Transaction } from './types'
 
 /** 四种操作类型（spec 领域词汇的封闭集合） */
 export const OPERATION_TYPES: OperationType[] = ['买入', '卖出', '分红现金', '分红再投入']
 
-/** 五个资产大类（spec 领域词汇的封闭集合） */
+/** 现有表单接受的旧五类（兼容映射见 classification.ts） */
 export const CATEGORIES = ['固守+', '纯债', '权益', '黄金', '流动性'] as const
 
 /** 流水录入输入（界面/服务入参；金额、份额、手续费可为空） */
@@ -101,21 +102,27 @@ export function normalizeTransactionInput(input: TransactionInput): Transaction 
   }
 }
 
-/** 校验并归一化新建基金输入（代码补零） */
-export function normalizeFundInput(input: FundInput): Fund {
+/** 校验并归一化新建基金输入（代码补零）。现有表单仍传旧五类，新模型字段由旧大类派生。 */
+export function normalizeFundInput(input: FundInput): ClassifiedFund {
   const errors: string[] = []
   const code = normalizeFundCode(input.code)
   if (code === null) errors.push('基金代码需为 6 位数字')
   if (input.name.trim() === '') errors.push('基金名称不能为空')
-  if (!(CATEGORIES as readonly string[]).includes(input.category.trim())) {
+  const category = input.category.trim()
+  if (!(CATEGORIES as readonly string[]).includes(category)) {
     errors.push(`资产大类需为：${CATEGORIES.join('/')}`)
   }
   if (errors.length > 0) fail(...errors)
 
+  // 旧五类校验已通过，映射必然存在；保留防御分支避免未来扩展时静默写入空模型
+  const legacy = resolveLegacyCategory(category)
+  if (legacy === null) fail(`无法识别的大类「${category}」`)
+
   return {
     code: code!,
     name: input.name.trim(),
-    category: input.category.trim(),
-    fundType: input.fundType === null || input.fundType.trim() === '' ? null : input.fundType.trim()
+    category,
+    fundType: input.fundType === null || input.fundType.trim() === '' ? null : input.fundType.trim(),
+    ...legacy.classification
   }
 }

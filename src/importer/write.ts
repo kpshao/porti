@@ -1,8 +1,8 @@
 // 导入写入：确认后的导入计划 → SQLite（单事务），含重复导入防护
 
 import type Database from 'better-sqlite3'
-import { reconstructNavPoints } from '../engine'
-import { hasAnyData } from '../main/repo'
+import { reconstructNavPoints, resolveLegacyCategory } from '../engine'
+import { hasAnyData, insertFund } from '../main/repo'
 import type { CommitPayload, ImportCounts } from './types'
 
 export function importToDb(db: Database.Database, plan: CommitPayload): ImportCounts {
@@ -11,15 +11,21 @@ export function importToDb(db: Database.Database, plan: CommitPayload): ImportCo
     throw new Error('数据库已有数据，重复导入会产生重复数据，已阻止导入。如需重新导入，请先清空数据库。')
   }
 
+  // 旧大类 → 新模型字段与兼容列写法；未知大类明确报错，不静默兜底（预览期警告见后续导入工单）
+  const funds = plan.funds.map((f) => {
+    const legacy = resolveLegacyCategory(f.category)
+    if (legacy === null) {
+      throw new Error(`无法识别的大类「${f.category}」（基金 ${f.code}），请先在 Excel 中修正`)
+    }
+    return { ...f, category: legacy.compatCategory, ...legacy.classification }
+  })
+
   // 以确认后的最终流水重建净值历史；当前净值日期校正为流水最大日期
   const { points, skipped } = reconstructNavPoints(plan.snapshots, plan.transactions)
   const maxDate = plan.transactions.reduce((m, t) => (t.date > m ? t.date : m), '')
   const currentNavs = plan.currentNavs.map((p) => ({ ...p, date: maxDate }))
 
   const now = new Date().toISOString()
-  const insertFund = db.prepare(
-    'INSERT INTO funds (code, name, category, fund_type, created_at) VALUES (?,?,?,?,?)'
-  )
   const insertTarget = db.prepare(
     'INSERT OR REPLACE INTO category_targets (category, target_ratio) VALUES (?,?)'
   )
@@ -36,8 +42,8 @@ export function importToDb(db: Database.Database, plan: CommitPayload): ImportCo
   )
 
   db.transaction(() => {
-    for (const f of plan.funds) {
-      insertFund.run(f.code, f.name, f.category, f.fundType, now)
+    for (const f of funds) {
+      insertFund(db, f, now)
     }
     for (const t of plan.categoryTargets) {
       insertTarget.run(t.category, t.targetRatio)

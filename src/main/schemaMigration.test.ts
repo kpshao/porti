@@ -4,16 +4,22 @@ import { join } from 'path'
 import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import { SCHEMA } from './schema'
-import { migrateDatabase } from './schemaMigration'
+import { migrateDatabase, V4_FUND_COLUMNS } from './schemaMigration'
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'porti-schema-migration-'))
 }
 
-/** v1 夹具：在当前 schema 上加回已被删除的 target_amount 列，版本标为 1 */
+/** 把当前 schema 还原成 v3 结构（v4 之前没有新模型字段） */
+function toV3Structure(db: Database.Database): void {
+  for (const col of V4_FUND_COLUMNS) db.exec(`ALTER TABLE funds DROP COLUMN ${col}`)
+}
+
+/** v1 夹具：v3 结构上加回已被删除的 target_amount 列，版本标为 1 */
 function seedV1Db(path: string): Database.Database {
   const db = new Database(path)
   db.exec(SCHEMA)
+  toV3Structure(db)
   db.exec('ALTER TABLE funds ADD COLUMN target_amount REAL')
   db.pragma('user_version = 1')
   db.prepare(
@@ -23,10 +29,11 @@ function seedV1Db(path: string): Database.Database {
   return db
 }
 
-/** v2 夹具：当前 schema 去掉 v3 新增的对话表，版本标为 2 */
+/** v2 夹具：v3 结构去掉 v3 新增的对话表，版本标为 2 */
 function seedV2Db(path: string): Database.Database {
   const db = new Database(path)
   db.exec(SCHEMA)
+  toV3Structure(db)
   db.exec('DROP TABLE ai_messages')
   db.pragma('user_version = 2')
   db.prepare(
@@ -34,6 +41,49 @@ function seedV2Db(path: string): Database.Database {
      VALUES ('002066', '迁移保留基金', '权益', NULL, '2026-01-01')`
   ).run()
   return db
+}
+
+/** v3 夹具：v4 结构去掉新字段，版本标为 3。覆盖旧五类（含已清仓的流动性基金）。 */
+function seedV3Db(path: string): Database.Database {
+  const db = new Database(path)
+  db.exec(SCHEMA)
+  toV3Structure(db)
+  db.pragma('user_version = 3')
+  const insertFund = db.prepare(
+    `INSERT INTO funds (code, name, category, fund_type, created_at) VALUES (?,?,?,?,?)`
+  )
+  insertFund.run('000001', '纯债基金', '纯债', '一级债基', '2026-01-01')
+  insertFund.run('000002', '固收加基金', '固守+', '二级债基', '2026-01-01')
+  insertFund.run('000003', '权益基金', '权益', '宽基指数', '2026-01-01')
+  insertFund.run('000004', '黄金基金', '黄金', '黄金', '2026-01-01')
+  insertFund.run('000005', '短债基金', '流动性', '短债', '2026-01-01')
+  // 已清仓的旧流动性基金：迁移同样要补齐新字段
+  const insertTx = db.prepare(
+    `INSERT INTO transactions (date, type, fund_code, amount, shares, nav, fee, note, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`
+  )
+  insertTx.run('2026-01-02', '买入', '000005', 1000, 900, 1.1, 0, null, '2026-01-02', '2026-01-02')
+  insertTx.run('2026-02-02', '卖出', '000005', -1100, -900, 1.2, 0, null, '2026-02-02', '2026-02-02')
+  return db
+}
+
+interface FundModelRow {
+  code: string
+  category: string
+  ledger_category: string
+  product_form: string
+  equity_ratio: number
+  equity_ratio_source: string
+  equity_ratio_as_of: string | null
+}
+
+function fundModelRows(db: Database.Database): FundModelRow[] {
+  return db
+    .prepare(
+      `SELECT code, category, ledger_category, product_form, equity_ratio, equity_ratio_source, equity_ratio_as_of
+       FROM funds ORDER BY code`
+    )
+    .all() as FundModelRow[]
 }
 
 function fundColumns(db: Database.Database): string[] {
@@ -64,15 +114,18 @@ describe('migrateDatabase — v1 → v2 删除单只基金目标金额', () => {
       name: '测试基金'
     })
 
+    // 逐级迁移会先后执行 v1→v2 与 v3→v4，两次破坏性变更各留一份迁移前备份
     const backups = backupFiles(dir)
-    expect(backups).toHaveLength(1)
-    const backup = new Database(join(dir, backups[0]), { readonly: true })
-    expect(fundColumns(backup)).toContain('target_amount')
+    expect(backups).toHaveLength(2)
+    const backup = backups
+      .map((f) => new Database(join(dir, f), { readonly: true }))
+      .find((b) => fundColumns(b).includes('target_amount'))
+    expect(backup).toBeDefined()
     expect(
-      (backup.prepare('SELECT target_amount FROM funds').get() as { target_amount: number })
+      (backup!.prepare('SELECT target_amount FROM funds').get() as { target_amount: number })
         .target_amount
     ).toBe(50000)
-    backup.close()
+    backup!.close()
     db.close()
   })
 
@@ -83,7 +136,8 @@ describe('migrateDatabase — v1 → v2 删除单只基金目标金额', () => {
     migrateDatabase(db, 1)
     migrateDatabase(db, 1)
 
-    expect(backupFiles(dir)).toHaveLength(1)
+    // 第一次产生 v1→v2 与 v3→v4 两份备份；重复迁移不再新增
+    expect(backupFiles(dir)).toHaveLength(2)
     db.close()
   })
 
@@ -113,8 +167,8 @@ describe('migrateDatabase — v2 → v3 新增单线程对话表', () => {
       code: '002066',
       name: '迁移保留基金'
     })
-    // 纯新增表不涉及破坏性变更，不应产生 .bak 副本
-    expect(backupFiles(dir)).toHaveLength(0)
+    // v2→v3 本身纯新增；同一次调用会继续执行 v3→v4，只出现 v4 迁移前的一份备份
+    expect(backupFiles(dir)).toHaveLength(1)
     db.close()
   })
 
@@ -122,6 +176,130 @@ describe('migrateDatabase — v2 → v3 新增单线程对话表', () => {
     const db = seedV2Db(join(tempDir(), 'porti.db'))
     migrateDatabase(db, 2)
     expect(() => migrateDatabase(db, 2)).not.toThrow()
+    db.close()
+  })
+})
+
+describe('migrateDatabase — v3 → v4 基金新模型字段', () => {
+  it('旧五类映射到账本大类/产品形态，并补默认系数、手工来源与空数据日期', () => {
+    const db = seedV3Db(join(tempDir(), 'porti.db'))
+
+    migrateDatabase(db, 3)
+
+    // 旧 category 值原样保留（尚未迁移的页面继续使用）；新字段覆盖全部旧五类。
+    expect(fundModelRows(db)).toEqual([
+      {
+        code: '000001',
+        category: '纯债',
+        ledger_category: '债',
+        product_form: '纯债',
+        equity_ratio: 0,
+        equity_ratio_source: 'manual',
+        equity_ratio_as_of: null
+      },
+      {
+        code: '000002',
+        category: '固守+',
+        ledger_category: '债',
+        product_form: '固收+',
+        equity_ratio: 0.2,
+        equity_ratio_source: 'manual',
+        equity_ratio_as_of: null
+      },
+      {
+        code: '000003',
+        category: '权益',
+        ledger_category: '权益',
+        product_form: '权益',
+        equity_ratio: 1,
+        equity_ratio_source: 'manual',
+        equity_ratio_as_of: null
+      },
+      {
+        code: '000004',
+        category: '黄金',
+        ledger_category: '黄金',
+        product_form: '黄金',
+        equity_ratio: 0,
+        equity_ratio_source: 'manual',
+        equity_ratio_as_of: null
+      },
+      {
+        // 已清仓的旧流动性基金：映射为 债 / 纯债，同样补齐默认系数
+        code: '000005',
+        category: '流动性',
+        ledger_category: '债',
+        product_form: '纯债',
+        equity_ratio: 0,
+        equity_ratio_source: 'manual',
+        equity_ratio_as_of: null
+      }
+    ])
+    db.close()
+  })
+
+  it('迁移前自动备份：备份保留 v3 结构与数据，迁移后的库才出现新字段', () => {
+    const dir = tempDir()
+    const db = seedV3Db(join(dir, 'porti.db'))
+
+    migrateDatabase(db, 3)
+
+    const backups = backupFiles(dir)
+    expect(backups).toHaveLength(1)
+    const backup = new Database(join(dir, backups[0]), { readonly: true })
+    expect(fundColumns(backup)).not.toContain('ledger_category')
+    expect((backup.prepare('SELECT COUNT(*) AS n FROM funds').get() as { n: number }).n).toBe(5)
+    backup.close()
+
+    expect(fundColumns(db)).toEqual(expect.arrayContaining(V4_FUND_COLUMNS))
+    db.close()
+  })
+
+  it('重复迁移幂等：已迁移的库不再备份，字段与旧数据保持不变', () => {
+    const dir = tempDir()
+    const db = seedV3Db(join(dir, 'porti.db'))
+
+    migrateDatabase(db, 3)
+    const first = fundModelRows(db)
+    migrateDatabase(db, 3)
+
+    expect(fundModelRows(db)).toEqual(first)
+    expect(backupFiles(dir)).toHaveLength(1)
+    db.close()
+  })
+
+  it('同时接受新拼写「固收+」作为兼容别名', () => {
+    const db = seedV3Db(join(tempDir(), 'porti.db'))
+    db.prepare("UPDATE funds SET category = '固收+' WHERE code = '000002'").run()
+
+    migrateDatabase(db, 3)
+
+    expect(fundModelRows(db).find((r) => r.code === '000002')).toEqual({
+      code: '000002',
+      category: '固收+',
+      ledger_category: '债',
+      product_form: '固收+',
+      equity_ratio: 0.2,
+      equity_ratio_source: 'manual',
+      equity_ratio_as_of: null
+    })
+    db.close()
+  })
+
+  it('无法识别的旧大类中止迁移：报出具体基金与值，不做静默兜底', () => {
+    const dir = tempDir()
+    const db = seedV3Db(join(dir, 'porti.db'))
+    db.prepare("UPDATE funds SET category = '股票型' WHERE code = '000003'").run()
+
+    expect(() => migrateDatabase(db, 3)).toThrow(/股票型/)
+    expect(() => migrateDatabase(db, 3)).toThrow(/000003/)
+
+    // 中止时结构未变更、未产生备份，旧数据原样保留
+    expect(fundColumns(db)).not.toContain('ledger_category')
+    expect(backupFiles(dir)).toHaveLength(0)
+    expect(db.prepare("SELECT category FROM funds WHERE code = '000003'").get()).toEqual({
+      category: '股票型'
+    })
     db.close()
   })
 })
