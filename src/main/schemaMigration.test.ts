@@ -487,6 +487,25 @@ describe('migrateDatabase — v5 → v6 收缩旧五类模型', () => {
     db.close()
   })
 
+  it('旧目标含无法识别的类别时中止迁移：列出具体值，不写配置桶、不删旧结构', () => {
+    const dir = tempDir()
+    const db = seedV5Db(join(dir, 'porti.db'), {
+      legacyTargets: [
+        ['纯债', 0.6],
+        ['股票型', 0.4]
+      ]
+    })
+
+    expect(() => migrateDatabase(db, 5)).toThrow(/股票型/)
+
+    // 迁移中止：旧目标表与旧分类列原样保留，配置桶未写入，未产生备份
+    expect(tableNames(db)).toContain('category_targets')
+    expect(fundColumns(db)).toContain('category')
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bucket_targets').get()).toEqual({ n: 0 })
+    expect(backupFiles(dir)).toHaveLength(0)
+    db.close()
+  })
+
   it('重复执行幂等：旧结构已清理时不再备份、不改变数据', () => {
     const dir = tempDir()
     const db = seedV5Db(join(dir, 'porti.db'), {

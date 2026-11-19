@@ -4,7 +4,13 @@
 import { normalizeFundCode } from '../engine'
 import { parseF10AssetAllocation, parsePingzhongAssetAllocation } from './assetAllocation'
 import { createHttpGet } from './http'
-import type { AssetAllocationQuarter, EquityFetchResult, HttpGet } from './types'
+import type {
+  AssetAllocationQuarter,
+  EquityFetchDataSource,
+  EquityFetchResult,
+  EquityRatioCandidate,
+  HttpGet
+} from './types'
 
 /** 固定域名：优先 pingzhongdata 脚本，失败时回退 F10 资产配置页 */
 export const PINGZHONG_DATA_BASE = 'https://fund.eastmoney.com/pingzhongdata/'
@@ -46,6 +52,26 @@ function latestQuarter(quarters: AssetAllocationQuarter[]): AssetAllocationQuart
   return latest
 }
 
+/** 成功分支共用：把最新季度的资产配置组装成候选值 */
+function toCandidate(
+  fundCode: string,
+  quarter: AssetAllocationQuarter,
+  dataSource: EquityFetchDataSource
+): EquityRatioCandidate {
+  return {
+    fundCode,
+    stockRatio: quarter.stockRatio,
+    reportDate: quarter.reportDate,
+    dataSource,
+    includesDepositaryReceipts: quarter.includesDepositaryReceipts
+  }
+}
+
+/** 两个数据源都失败时的统一错误文案 */
+function fetchFailedError(primaryError: string, fallbackError: string): string {
+  return `抓取失败：${primaryError}；回退 F10 失败：${fallbackError}`
+}
+
 /**
  * 抓取单只基金的股票占净比候选值。pingzhongdata 优先，任何失败都回退 F10；
  * 两个数据源都失败时返回逐行错误，不抛出（批次可继续）。
@@ -63,16 +89,7 @@ export async function fetchEquityCandidate(
     const body = await httpGet(buildPingzhongDataUrl(code), timeoutMs)
     const latest = latestQuarter(parsePingzhongAssetAllocation(body))
     if (latest !== null) {
-      return {
-        ok: true,
-        candidate: {
-          fundCode: code,
-          stockRatio: latest.stockRatio,
-          reportDate: latest.reportDate,
-          dataSource: 'pingzhongdata',
-          includesDepositaryReceipts: latest.includesDepositaryReceipts
-        }
-      }
+      return { ok: true, candidate: toCandidate(code, latest, 'pingzhongdata') }
     }
     primaryError = 'pingzhongdata 未返回有效资产配置数据'
   } catch (e) {
@@ -83,28 +100,15 @@ export async function fetchEquityCandidate(
     const body = await httpGet(buildF10Url(code), timeoutMs)
     const latest = latestQuarter(parseF10AssetAllocation(body))
     if (latest !== null) {
-      return {
-        ok: true,
-        candidate: {
-          fundCode: code,
-          stockRatio: latest.stockRatio,
-          reportDate: latest.reportDate,
-          dataSource: 'f10',
-          includesDepositaryReceipts: latest.includesDepositaryReceipts
-        }
-      }
+      return { ok: true, candidate: toCandidate(code, latest, 'f10') }
     }
     return {
       ok: false,
       fundCode: code,
-      error: `抓取失败：${primaryError}；回退 F10 失败：F10 未返回有效资产配置数据`
+      error: fetchFailedError(primaryError, 'F10 未返回有效资产配置数据')
     }
   } catch (e) {
-    return {
-      ok: false,
-      fundCode: code,
-      error: `抓取失败：${primaryError}；回退 F10 失败：${errorMessage(e)}`
-    }
+    return { ok: false, fundCode: code, error: fetchFailedError(primaryError, errorMessage(e)) }
   }
 }
 

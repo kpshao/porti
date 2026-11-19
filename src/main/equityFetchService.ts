@@ -51,15 +51,13 @@ export function createEquityFetchService(
 
     async fetchAll(db, options = {}) {
       const codes = selectFunds(db).map((fund) => fund.code)
-      const results = await fetchEquityCandidateBatch(codes, httpGet, {
+      return fetchEquityCandidateBatch(codes, httpGet, {
         ...options,
         onResult: (result) => {
           remember(result)
           options.onResult?.(result)
         }
       })
-      for (const result of results) remember(result)
-      return results
     },
 
     confirm(db, input) {
